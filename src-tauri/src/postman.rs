@@ -1,9 +1,328 @@
 use crate::domain::*;
-use serde_json::{json,Value};
-fn id()->String{uuid::Uuid::new_v4().to_string()}
-fn pairs(value:&Value)->Vec<Pair>{value.as_array().map(|a|a.iter().map(|p|Pair{key:p["key"].as_str().unwrap_or_default().into(),value:p["value"].as_str().map(str::to_string).unwrap_or_else(||if p["value"].is_null(){String::new()}else{p["value"].to_string()}),enabled:!p["disabled"].as_bool().unwrap_or(false),description:p["description"].as_str().unwrap_or_default().into(),kind:p["type"].as_str().unwrap_or("text").into(),..Default::default()}).collect()).unwrap_or_default()}
-fn export_pairs(ps:&[Pair],original:&Value)->Value{Value::Array(ps.iter().map(|p|{let mut v=original.as_array().and_then(|a|a.iter().find(|x|x["key"]==p.key)).cloned().unwrap_or_else(||json!({}));v["key"]=json!(p.key);v["value"]=json!(if p.is_secret {""} else {&p.value});v["disabled"]=json!(!p.enabled);if !p.description.is_empty(){v["description"]=json!(p.description)}v}).collect())}
-pub fn import(input:Value,ws:&mut Workspace)->Result<String>{if input.get("values").is_some()&&input.get("item").is_none(){let eid=id();ws.environments.push(Environment{id:eid.clone(),name:input["name"].as_str().unwrap_or("Imported environment").into(),variables:pairs(&input["values"]),settings:json!({}),metadata:input});return Ok(eid)}let schema=input["info"]["schema"].as_str().unwrap_or_default();if !schema.contains("v2.1.0"){return Err(AppError::new("IMPORT_UNSUPPORTED_VERSION","Expected Postman Collection v2.1"))}if !input["item"].is_array(){return Err(AppError::new("IMPORT_INVALID_FORMAT","Missing collection items"))}let cid=id();ws.collections.push(Collection{id:cid.clone(),name:input["info"]["name"].as_str().unwrap_or("Imported collection").into(),auth:input.get("auth").cloned().unwrap_or(json!({"type":"noauth"})),variables:pairs(&input["variable"]),metadata:input.clone()});fn walk(items:&Value,cid:&str,parent:Option<String>,ws:&mut Workspace){if let Some(items)=items.as_array(){for (n,raw) in items.iter().enumerate(){let iid=id();let is_folder=raw["item"].is_array();let name=raw["name"].as_str().unwrap_or("Untitled").to_string();let request=if is_folder{None}else{let r=if raw["request"].is_string(){json!({"url":raw["request"],"method":"GET"})}else{raw["request"].clone()};let u=&r["url"];let url=u.as_str().or_else(||u["raw"].as_str()).map(str::to_string).unwrap_or_else(||{let host=u["host"].as_array().map(|a|a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(".")).unwrap_or_default();let path=u["path"].as_array().map(|a|a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("/")).unwrap_or_default();format!("{}://{}/{}",u["protocol"].as_str().unwrap_or("https"),host,path)});Some(RequestSpec{id:id(),name:name.clone(),method:r["method"].as_str().unwrap_or("GET").into(),url,params:pairs(&u["query"]),headers:pairs(&r["header"]),auth:r.get("auth").cloned().unwrap_or(json!({"type":"inherit"})),body:r.get("body").cloned().unwrap_or(json!({"mode":"none"})),settings:json!({}),metadata:r})};ws.items.push(Item{id:iid.clone(),collection_id:cid.into(),parent_id:parent.clone(),kind:if is_folder{"folder"}else{"request"}.into(),name,order:n as f64,auth:raw.get("auth").cloned().unwrap_or(json!({"type":"inherit"})),request,metadata:raw.clone()});if is_folder{walk(&raw["item"],cid,Some(iid),ws)}}}}walk(&input["item"],&cid,None,ws);Ok(cid)}
-pub fn export(ws:&Workspace,cid:&str)->Result<Value>{let c=ws.collections.iter().find(|c|c.id==cid).ok_or_else(||AppError::new("NOT_FOUND","Collection not found"))?;let mut result=if c.metadata.is_object(){c.metadata.clone()}else{json!({})};result["info"]["name"]=json!(c.name);result["info"]["schema"]=json!("https://schema.getpostman.com/json/collection/v2.1.0/collection.json");result["auth"]=c.auth.clone();result["variable"]=export_pairs(&c.variables,&c.metadata["variable"]);fn children(ws:&Workspace,cid:&str,parent:Option<&str>)->Value{let mut items:Vec<_>=ws.items.iter().filter(|i|i.collection_id==cid&&i.parent_id.as_deref()==parent).collect();items.sort_by(|a,b|a.order.total_cmp(&b.order));Value::Array(items.into_iter().map(|i|{let mut v=if i.metadata.is_object(){i.metadata.clone()}else{json!({})};v["name"]=json!(i.name);if i.kind=="folder"{v["auth"]=i.auth.clone();v["item"]=children(ws,cid,Some(&i.id));}else if let Some(r)=&i.request{let mut rq=if r.metadata.is_object(){r.metadata.clone()}else{json!({})};rq["method"]=json!(r.method);if rq["url"].is_object(){rq["url"]["raw"]=json!(r.url);rq["url"]["query"]=export_pairs(&r.params,&r.metadata["url"]["query"]);}else if r.params.is_empty(){rq["url"]=json!(r.url)}else{rq["url"]=json!({"raw":r.url,"query":export_pairs(&r.params,&Value::Null)})}rq["header"]=export_pairs(&r.headers,&r.metadata["header"]);if r.auth["type"]!="inherit"{rq["auth"]=r.auth.clone()}rq["body"]=r.body.clone();v["request"]=rq;}v}).collect())}result["item"]=children(ws,cid,None);Ok(result)}
-pub fn export_environment(e:&Environment)->Value{let mut v=if e.metadata.is_object(){e.metadata.clone()}else{json!({})};v["name"]=json!(e.name);v["_postman_variable_scope"]=json!("environment");v["values"]=export_pairs(&e.variables,&e.metadata["values"]);v}
-#[cfg(test)]mod tests{use super::*;#[test]fn golden_files(){for name in ["basic","folder","variables","headers","params","json-body","form-data","auth","disabled-items","scripts"]{let p=format!("{}/../testdata/postman/{name}.json",env!("CARGO_MANIFEST_DIR"));let raw:Value=serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();let mut w=Workspace::default();let id=import(raw,&mut w).unwrap();let first=export(&w,&id).unwrap();let mut w2=Workspace::default();let id2=import(first.clone(),&mut w2).unwrap();assert_eq!(export(&w2,&id2).unwrap(),first,"{name}");assert_eq!(w.items.len(),w2.items.len());}}#[test]fn environment_roundtrip(){let raw=json!({"name":"DEV","values":[{"key":"host","value":"localhost","disabled":true}],"custom":"keep"});let mut w=Workspace::default();import(raw.clone(),&mut w).unwrap();let out=export_environment(&w.environments[0]);assert_eq!(out["values"],raw["values"]);assert_eq!(out["custom"],"keep");}#[test]fn reject_invalid(){assert!(import(json!({}),&mut Workspace::default()).is_err());}}
+use serde_json::{json, Value};
+fn id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+fn pairs(value: &Value) -> Vec<Pair> {
+    value
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|p| Pair {
+                    key: p["key"].as_str().unwrap_or_default().into(),
+                    value: p["value"].as_str().map(str::to_string).unwrap_or_else(|| {
+                        if p["value"].is_null() {
+                            String::new()
+                        } else {
+                            p["value"].to_string()
+                        }
+                    }),
+                    enabled: !p["disabled"].as_bool().unwrap_or(false),
+                    description: p["description"].as_str().unwrap_or_default().into(),
+                    kind: p["type"].as_str().unwrap_or("text").into(),
+                    ..Default::default()
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+fn export_pairs(ps: &[Pair], original: &Value) -> Value {
+    Value::Array(
+        ps.iter()
+            .map(|p| {
+                let mut v = original
+                    .as_array()
+                    .and_then(|a| a.iter().find(|x| x["key"] == p.key))
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                v["key"] = json!(p.key);
+                v["value"] = json!(if p.is_secret { "" } else { &p.value });
+                v["disabled"] = json!(!p.enabled);
+                if !p.description.is_empty() {
+                    v["description"] = json!(p.description)
+                }
+                v
+            })
+            .collect(),
+    )
+}
+pub fn import(input: Value, ws: &mut Workspace) -> Result<String> {
+    if input.get("values").is_some() && input.get("item").is_none() {
+        let eid = id();
+        ws.environments.push(Environment {
+            id: eid.clone(),
+            name: input["name"]
+                .as_str()
+                .unwrap_or("Imported environment")
+                .into(),
+            variables: pairs(&input["values"]),
+            settings: json!({}),
+            metadata: input,
+        });
+        return Ok(eid);
+    }
+    let schema = input["info"]["schema"].as_str().unwrap_or_default();
+    if !schema.contains("v2.1.0") {
+        return Err(AppError::new(
+            "IMPORT_UNSUPPORTED_VERSION",
+            "Expected Postman Collection v2.1",
+        ));
+    }
+    if !input["item"].is_array() {
+        return Err(AppError::new(
+            "IMPORT_INVALID_FORMAT",
+            "Missing collection items",
+        ));
+    }
+    let cid = id();
+    ws.collections.push(Collection {
+        id: cid.clone(),
+        name: input["info"]["name"]
+            .as_str()
+            .unwrap_or("Imported collection")
+            .into(),
+        auth: input
+            .get("auth")
+            .cloned()
+            .unwrap_or(json!({"type":"noauth"})),
+        variables: pairs(&input["variable"]),
+        metadata: input.clone(),
+    });
+    fn walk(items: &Value, cid: &str, parent: Option<String>, ws: &mut Workspace) {
+        if let Some(items) = items.as_array() {
+            for (n, raw) in items.iter().enumerate() {
+                let iid = id();
+                let is_folder = raw["item"].is_array();
+                let name = raw["name"].as_str().unwrap_or("Untitled").to_string();
+                let request = if is_folder {
+                    None
+                } else {
+                    let r = if raw["request"].is_string() {
+                        json!({"url":raw["request"],"method":"GET"})
+                    } else {
+                        raw["request"].clone()
+                    };
+                    let u = &r["url"];
+                    let url = u
+                        .as_str()
+                        .or_else(|| u["raw"].as_str())
+                        .map(str::to_string)
+                        .unwrap_or_else(|| {
+                            let host = u["host"]
+                                .as_array()
+                                .map(|a| {
+                                    a.iter()
+                                        .filter_map(Value::as_str)
+                                        .collect::<Vec<_>>()
+                                        .join(".")
+                                })
+                                .unwrap_or_default();
+                            let path = u["path"]
+                                .as_array()
+                                .map(|a| {
+                                    a.iter()
+                                        .filter_map(Value::as_str)
+                                        .collect::<Vec<_>>()
+                                        .join("/")
+                                })
+                                .unwrap_or_default();
+                            format!(
+                                "{}://{}/{}",
+                                u["protocol"].as_str().unwrap_or("https"),
+                                host,
+                                path
+                            )
+                        });
+                    Some(RequestSpec {
+                        id: id(),
+                        name: name.clone(),
+                        method: r["method"].as_str().unwrap_or("GET").into(),
+                        url,
+                        params: pairs(&u["query"]),
+                        headers: pairs(&r["header"]),
+                        auth: r.get("auth").cloned().unwrap_or(json!({"type":"inherit"})),
+                        body: r.get("body").cloned().unwrap_or(json!({"mode":"none"})),
+                        settings: json!({}),
+                        metadata: r,
+                    })
+                };
+                ws.items.push(Item {
+                    id: iid.clone(),
+                    collection_id: cid.into(),
+                    parent_id: parent.clone(),
+                    kind: if is_folder { "folder" } else { "request" }.into(),
+                    name,
+                    order: n as f64,
+                    auth: raw
+                        .get("auth")
+                        .cloned()
+                        .unwrap_or(json!({"type":"inherit"})),
+                    request,
+                    metadata: raw.clone(),
+                });
+                if is_folder {
+                    walk(&raw["item"], cid, Some(iid), ws)
+                }
+            }
+        }
+    }
+    walk(&input["item"], &cid, None, ws);
+    Ok(cid)
+}
+fn export_auth(auth: &Value) -> Value {
+    let mut a = auth.clone();
+    let kind = auth["type"].as_str().unwrap_or("noauth");
+    let keys: &[&str] = match kind {
+        "bearer" => &["token"],
+        "basic" => &["username", "password"],
+        "apikey" => &["key", "value", "in"],
+        _ => &[],
+    };
+    for key in keys {
+        if let Some(value) = auth.get(*key) {
+            let mut entries = a[kind].as_array().cloned().unwrap_or_default();
+            if let Some(entry) = entries.iter_mut().find(|e| e["key"] == *key) {
+                entry["value"] = value.clone()
+            } else {
+                entries.push(json!({"key":key,"value":value,"type":"string"}))
+            }
+            a[kind] = Value::Array(entries);
+            a.as_object_mut().unwrap().remove(*key);
+        }
+    }
+    a
+}
+pub fn export(ws: &Workspace, cid: &str) -> Result<Value> {
+    let c = ws
+        .collections
+        .iter()
+        .find(|c| c.id == cid)
+        .ok_or_else(|| AppError::new("NOT_FOUND", "Collection not found"))?;
+    let mut result = if c.metadata.is_object() {
+        c.metadata.clone()
+    } else {
+        json!({})
+    };
+    result["info"]["name"] = json!(c.name);
+    result["info"]["schema"] =
+        json!("https://schema.getpostman.com/json/collection/v2.1.0/collection.json");
+    result["auth"] = export_auth(&c.auth);
+    result["variable"] = export_pairs(&c.variables, &c.metadata["variable"]);
+    fn children(ws: &Workspace, cid: &str, parent: Option<&str>) -> Value {
+        let mut items: Vec<_> = ws
+            .items
+            .iter()
+            .filter(|i| i.collection_id == cid && i.parent_id.as_deref() == parent)
+            .collect();
+        items.sort_by(|a, b| a.order.total_cmp(&b.order));
+        Value::Array(
+            items
+                .into_iter()
+                .map(|i| {
+                    let mut v = if i.metadata.is_object() {
+                        i.metadata.clone()
+                    } else {
+                        json!({})
+                    };
+                    v["name"] = json!(i.name);
+                    if i.kind == "folder" {
+                        if i.auth["type"] == "inherit" {
+                            v.as_object_mut().unwrap().remove("auth");
+                        } else {
+                            v["auth"] = export_auth(&i.auth);
+                        }
+                        v["item"] = children(ws, cid, Some(&i.id));
+                    } else if let Some(r) = &i.request {
+                        let mut rq = if r.metadata.is_object() {
+                            r.metadata.clone()
+                        } else {
+                            json!({})
+                        };
+                        rq["method"] = json!(r.method);
+                        if rq["url"].is_object() {
+                            rq["url"]["raw"] = json!(r.url);
+                            rq["url"]["query"] =
+                                export_pairs(&r.params, &r.metadata["url"]["query"]);
+                        } else if r.params.is_empty() {
+                            rq["url"] = json!(r.url)
+                        } else {
+                            rq["url"] =
+                                json!({"raw":r.url,"query":export_pairs(&r.params,&Value::Null)})
+                        }
+                        rq["header"] = export_pairs(&r.headers, &r.metadata["header"]);
+                        if r.auth["type"] != "inherit" {
+                            rq["auth"] = export_auth(&r.auth)
+                        } else {
+                            rq.as_object_mut().unwrap().remove("auth");
+                        }
+                        if r.body["mode"] == "none" {
+                            rq.as_object_mut().unwrap().remove("body");
+                        } else {
+                            rq["body"] = r.body.clone();
+                        }
+                        v["request"] = rq;
+                    }
+                    v
+                })
+                .collect(),
+        )
+    }
+    result["item"] = children(ws, cid, None);
+    Ok(result)
+}
+pub fn export_environment(e: &Environment) -> Value {
+    let mut v = if e.metadata.is_object() {
+        e.metadata.clone()
+    } else {
+        json!({})
+    };
+    v["name"] = json!(e.name);
+    v["_postman_variable_scope"] = json!("environment");
+    v["values"] = export_pairs(&e.variables, &e.metadata["values"]);
+    v
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn golden_files() {
+        for name in [
+            "basic",
+            "folder",
+            "variables",
+            "headers",
+            "params",
+            "json-body",
+            "form-data",
+            "auth",
+            "disabled-items",
+            "scripts",
+        ] {
+            let p = format!(
+                "{}/../testdata/postman/{name}.json",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let raw: Value = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+            let mut w = Workspace::default();
+            let id = import(raw, &mut w).unwrap();
+            let first = export(&w, &id).unwrap();
+            let mut w2 = Workspace::default();
+            let id2 = import(first.clone(), &mut w2).unwrap();
+            assert_eq!(export(&w2, &id2).unwrap(), first, "{name}");
+            assert_eq!(w.items.len(), w2.items.len());
+        }
+    }
+    #[test]
+    fn environment_roundtrip() {
+        let raw = json!({"name":"DEV","values":[{"key":"host","value":"localhost","disabled":true}],"custom":"keep"});
+        let mut w = Workspace::default();
+        import(raw.clone(), &mut w).unwrap();
+        let out = export_environment(&w.environments[0]);
+        assert_eq!(out["values"], raw["values"]);
+        assert_eq!(out["custom"], "keep");
+    }
+    #[test]
+    fn reject_invalid() {
+        assert!(import(json!({}), &mut Workspace::default()).is_err());
+    }
+}

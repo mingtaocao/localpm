@@ -1,25 +1,570 @@
-use crate::{domain::*,variables};
+use crate::{domain::*, variables};
 use base64::Engine;
-use reqwest::{Client, cookie::Jar};
-use serde_json::{json,Value};
-use std::{collections::HashMap,path::PathBuf,sync::{Arc,Mutex},time::{Duration,Instant}};
+use reqwest::Client;
+use reqwest_cookie_store::{CookieStore, CookieStoreMutex};
+use serde_json::{json, Value};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 use tokio::io::AsyncWriteExt;
-use tokio_util::{io::ReaderStream,sync::CancellationToken};
-#[derive(Clone)]pub struct PreparedRequest{pub request:RequestSpec,pub url:String,pub headers:Vec<(String,String)>,pub body:Value,pub settings:Value,pub vars:Variables}
-pub struct HttpEngine{clients:Mutex<HashMap<String,Client>>,pub jar:Arc<Jar>,pub cancellations:Mutex<HashMap<String,CancellationToken>>,pub temp:PathBuf}
-fn network(ws:&Workspace,r:&RequestSpec)->Value{let mut s=ws.settings.clone();if let Some(e)=ws.environments.iter().find(|e|Some(&e.id)==ws.active_environment.as_ref()){merge(&mut s,&e.settings)}merge(&mut s,&r.settings);s}
-fn merge(a:&mut Value,b:&Value){if let Some(b)=b.as_object(){for(k,v)in b{if !v.is_null()&&!(k=="proxy"&&v["mode"]=="inherit"){a[k]=v.clone()}}}}
-fn auth(ws:&Workspace,r:&RequestSpec)->Value{if r.auth["type"]!="inherit"&&!r.auth.is_null(){return r.auth.clone()}let item=ws.items.iter().find(|i|i.request.as_ref().is_some_and(|x|x.id==r.id));if let Some(i)=item{let mut p=i.parent_id.clone();let mut visited=std::collections::HashSet::new();while let Some(pid)=p{if !visited.insert(pid.clone()){break}if let Some(f)=ws.items.iter().find(|x|x.id==pid){if !f.auth.is_null()&&f.auth["type"]!="inherit"{return f.auth.clone()}p=f.parent_id.clone()}else{break}}if let Some(c)=ws.collections.iter().find(|c|c.id==i.collection_id){return c.auth.clone()}}json!({"type":"noauth"})}
-fn field(a:&Value,kind:&str,key:&str)->String{a[key].as_str().or_else(||a[kind].as_array().and_then(|a|a.iter().find(|v|v["key"]==key)).and_then(|v|v["value"].as_str())).unwrap_or_default().into()}
-pub fn prepare(ws:&Workspace,r:&RequestSpec)->Result<PreparedRequest>{let cid=ws.items.iter().find(|i|i.request.as_ref().is_some_and(|x|x.id==r.id)).map(|i|i.collection_id.as_str());let vars=variables::context(ws,cid)?;let resolve=|s:&str|variables::resolve(s,&vars);let raw=resolve(&r.url)?;let mut u=url::Url::parse(&raw).map_err(|_|AppError::new("INVALID_URL","Enter an absolute HTTP or HTTPS URL"))?;if !["http","https"].contains(&u.scheme()){return Err(AppError::new("INVALID_URL","Only HTTP and HTTPS are supported"))}if !r.params.is_empty(){u.set_query(None);for p in r.params.iter().filter(|p|p.enabled&&!p.key.is_empty()){u.query_pairs_mut().append_pair(&resolve(&p.key)?,&resolve(&p.value)?);}}let mut headers=vec![];for p in r.headers.iter().filter(|p|p.enabled&&!p.key.is_empty()){headers.push((resolve(&p.key)?,resolve(&p.value)?))}let a=auth(ws,r);let kind=a["type"].as_str().unwrap_or("noauth");match kind{"bearer"=>headers.push(("Authorization".into(),format!("Bearer {}",resolve(&field(&a,kind,"token"))?))),"basic"=>headers.push(("Authorization".into(),format!("Basic {}",base64::engine::general_purpose::STANDARD.encode(format!("{}:{}",resolve(&field(&a,kind,"username"))?,resolve(&field(&a,kind,"password"))?))))),"apikey"=>{let key=resolve(&field(&a,kind,"key"))?;let value=resolve(&field(&a,kind,"value"))?;if field(&a,kind,"in")=="query"{u.query_pairs_mut().append_pair(&key,&value);}else{headers.push((key,value));}},"noauth"|"inherit"=>{},_=>return Err(AppError::new("AUTH_UNSUPPORTED",format!("{kind} is preserved but not executable in V1")))}let mut body=r.body.clone();if let Some(raw)=body["raw"].as_str(){body["raw"]=json!(resolve(raw)?)}for mode in ["urlencoded","formdata"]{if let Some(pairs)=body[mode].as_array_mut(){for p in pairs{if p["type"]!="file"{if let Some(v)=p["value"].as_str(){p["value"]=json!(resolve(v)?)}if let Some(v)=p["key"].as_str(){p["key"]=json!(resolve(v)?)} }}}}let mut settings=network(ws,r);if let Some(p)=settings["proxy"]["url"].as_str(){settings["proxy"]["url"]=json!(resolve(p)?)}Ok(PreparedRequest{request:r.clone(),url:u.to_string(),headers,body,settings,vars})}
-pub fn bypass(host:&str,patterns:&str)->bool{patterns.split([',','\n',' ']).filter(|s|!s.is_empty()).any(|p|{let escaped=regex::escape(p).replace("\\*",".*");regex::Regex::new(&format!("(?i)^{escaped}$")).is_ok_and(|r|r.is_match(host))})}
-fn map_error(e:reqwest::Error,proxy:bool)->AppError{let code=if e.is_timeout(){"REQUEST_TIMEOUT"}else if e.is_connect(){if proxy{"PROXY_CONNECT_FAILED"}else if e.to_string().to_lowercase().contains("certificate"){"TLS_ERROR"}else{"CONNECT_FAILED"}}else if e.is_builder(){"INVALID_REQUEST"}else{"BODY_READ_FAILED"};AppError::new(code,match code{"REQUEST_TIMEOUT"=>"Request timed out","TLS_ERROR"=>"TLS certificate verification failed","PROXY_CONNECT_FAILED"=>"Could not connect through proxy","CONNECT_FAILED"=>"Could not connect to server",_=>"HTTP request failed"})}
-impl HttpEngine{
- pub fn new(temp:PathBuf)->Self{Self{clients:Mutex::new(HashMap::new()),jar:Arc::new(Jar::default()),cancellations:Mutex::new(HashMap::new()),temp}}
- fn client(&self,p:&PreparedRequest)->Result<Client>{let host=url::Url::parse(&p.url).unwrap().host_str().unwrap_or_default().to_string();let proxy=&p.settings["proxy"];let bypassed=bypass(&host,proxy["noProxy"].as_str().unwrap_or_default());let mode=if bypassed{"off"}else{proxy["mode"].as_str().unwrap_or("off")};let key=format!("{}|{}|{}|{}|{}",p.settings["verifyTls"],p.settings["followRedirect"],p.settings["caFile"],mode,proxy);let mut clients=self.clients.lock().unwrap();if let Some(c)=clients.get(&key){return Ok(c.clone())}let mut builder=Client::builder().cookie_provider(self.jar.clone()).danger_accept_invalid_certs(p.settings["verifyTls"]==false).redirect(if p.settings["followRedirect"]==false{reqwest::redirect::Policy::none()}else{reqwest::redirect::Policy::limited(10)});if mode=="off"{builder=builder.no_proxy()}else if mode=="manual"{let address=proxy["url"].as_str().unwrap_or_default();let mut px=reqwest::Proxy::all(address).map_err(|_|AppError::new("INVALID_PROXY","Invalid proxy URL"))?;if let Some(user)=proxy["username"].as_str().filter(|u|!u.is_empty()){let password=if let Some(r)=proxy["secretRef"].as_str(){keyring::Entry::new("LocalPostman",r).and_then(|e|e.get_password()).map_err(|_|AppError::new("SECRET_UNAVAILABLE","Proxy password unavailable"))?}else{String::new()};px=px.basic_auth(user,&password)}builder=builder.no_proxy().proxy(px)}if let Some(path)=p.settings["caFile"].as_str().filter(|s|!s.is_empty()){let bytes=std::fs::read(path).map_err(|_|AppError::new("FILE_NOT_FOUND","CA file unavailable"))?;builder=builder.add_root_certificate(reqwest::Certificate::from_pem(&bytes).map_err(|_|AppError::new("TLS_ERROR","Invalid PEM certificate"))?)}let c=builder.build().map_err(|e|map_error(e,mode=="manual"))?;if clients.len()>=32{clients.clear()}clients.insert(key,c.clone());Ok(c)}
- pub fn cancel(&self,id:&str){if let Some(t)=self.cancellations.lock().unwrap().get(id){t.cancel()}}
- pub async fn execute(&self,p:PreparedRequest,execution_id:String)->Result<Response>{let token=CancellationToken::new();self.cancellations.lock().unwrap().insert(execution_id.clone(),token.clone());let timeout=p.settings["timeout"].as_u64().unwrap_or(30000).max(1);let result=tokio::select!{_ = token.cancelled()=>Err(AppError::new("REQUEST_CANCELLED","Request cancelled")), result=tokio::time::timeout(Duration::from_millis(timeout),self.perform(&p,&execution_id))=>result.unwrap_or_else(|_|Err(AppError::new("REQUEST_TIMEOUT","Request timed out")))};self.cancellations.lock().unwrap().remove(&execution_id);result}
- async fn perform(&self,p:&PreparedRequest,id:&str)->Result<Response>{let started=Instant::now();let client=self.client(p)?;let method=reqwest::Method::from_bytes(p.request.method.as_bytes()).map_err(|_|AppError::new("INVALID_METHOD","Invalid HTTP method"))?;let mut rq=client.request(method,&p.url);for(k,v)in &p.headers{rq=rq.header(k,v)}let has_type=p.headers.iter().any(|(k,_)|k.eq_ignore_ascii_case("content-type"));match p.body["mode"].as_str().unwrap_or("none"){"raw"=>{rq=rq.body(p.body["raw"].as_str().unwrap_or_default().to_string());if !has_type{let lang=p.body["options"]["raw"]["language"].as_str().unwrap_or("text");rq=rq.header("Content-Type",match lang{"json"=>"application/json","xml"=>"application/xml","html"=>"text/html","javascript"=>"application/javascript",_=>"text/plain"})}},"urlencoded"=>{let fields:Vec<(String,String)>=p.body["urlencoded"].as_array().into_iter().flatten().filter(|v|v["disabled"]!=true).map(|v|(v["key"].as_str().unwrap_or_default().into(),v["value"].as_str().unwrap_or_default().into())).collect();rq=rq.form(&fields)},"formdata"=>{let mut form=reqwest::multipart::Form::new();for f in p.body["formdata"].as_array().into_iter().flatten().filter(|v|v["disabled"]!=true){let key=f["key"].as_str().unwrap_or_default().to_string();if f["type"]=="file"{let paths:Vec<&str>=if let Some(a)=f["src"].as_array(){a.iter().filter_map(Value::as_str).collect()}else{vec![f["src"].as_str().unwrap_or_default()]};for path in paths{let file=tokio::fs::File::open(path).await.map_err(|_|AppError::new("FILE_NOT_FOUND","Upload file unavailable"))?;let len=file.metadata().await.map_err(|_|AppError::new("BODY_READ_FAILED","Cannot read upload file"))?.len();let part=reqwest::multipart::Part::stream_with_length(reqwest::Body::wrap_stream(ReaderStream::new(file)),len).file_name(std::path::Path::new(path).file_name().unwrap_or_default().to_string_lossy().into_owned());form=form.part(key.clone(),part)}}else{form=form.text(key,f["value"].as_str().unwrap_or_default().to_string())}}rq=rq.multipart(form)},"file"=>{let file=tokio::fs::File::open(p.body["file"]["src"].as_str().unwrap_or_default()).await.map_err(|_|AppError::new("FILE_NOT_FOUND","Binary file unavailable"))?;rq=rq.body(reqwest::Body::wrap_stream(ReaderStream::new(file)))},_=>{}}
- let manual=p.settings["proxy"]["mode"]=="manual";let mut response=rq.send().await.map_err(|e|map_error(e,manual))?;let status=response.status();if status.as_u16()==407{return Err(AppError::new("PROXY_AUTHENTICATION_FAILED","Proxy authentication failed"))}let headers=response.headers().iter().map(|(k,v)|(k.to_string(),v.to_str().unwrap_or_default().to_string())).collect();let content_type=response.headers().get("content-type").and_then(|v|v.to_str().ok()).unwrap_or_default().to_string();let final_url=response.url().to_string();let redirects=if final_url!=p.url{vec![p.url.clone(),final_url.clone()]}else{vec![]};tokio::fs::create_dir_all(&self.temp).await.map_err(|_|AppError::new("BODY_READ_FAILED","Cannot create response cache"))?;let path=self.temp.join(format!("{}.response",uuid::Uuid::new_v4()));let mut file=tokio::fs::File::create(&path).await.map_err(|_|AppError::new("BODY_READ_FAILED","Cannot cache response"))?;let mut preview=vec![];let mut size=0;while let Some(chunk)=response.chunk().await.map_err(|e|map_error(e,manual))?{size+=chunk.len();file.write_all(&chunk).await.map_err(|_|AppError::new("BODY_READ_FAILED","Cannot write response cache"))?;if size<=20*1024*1024{preview.extend_from_slice(&chunk)}else{preview.clear()}}file.flush().await.map_err(|_|AppError::new("BODY_READ_FAILED",id))?;let binary=std::str::from_utf8(&preview).is_err();let body=if binary{String::new()}else{String::from_utf8_lossy(&preview).into_owned()};Ok(Response{status:status.as_u16(),status_text:status.canonical_reason().unwrap_or_default().into(),headers,body,duration:started.elapsed().as_millis(),size,content_type,final_url,redirects,file:path.to_string_lossy().into_owned(),truncated:size>20*1024*1024,binary})}
+use tokio_util::{io::ReaderStream, sync::CancellationToken};
+#[derive(Clone)]
+pub struct PreparedRequest {
+    pub request: RequestSpec,
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Value,
+    pub settings: Value,
+    pub vars: Variables,
 }
-#[cfg(test)]mod tests{use super::*;#[test]fn no_proxy_patterns(){for(h,p)in[("localhost","localhost"),("192.168.1.2","192.168.*"),("a.company.com","*.company.com")]{assert!(bypass(h,p))}assert!(!bypass("evilcompany.com","*.company.com"));}#[test]fn auth_and_params(){let w=Workspace::default();let r=RequestSpec{url:"https://example.com".into(),params:vec![Pair{key:"a".into(),value:"a b".into(),..Default::default()}],auth:json!({"type":"basic","username":"u","password":"p"}),..Default::default()};let p=prepare(&w,&r).unwrap();assert!(p.url.contains("a=a+b"));assert_eq!(p.headers[0].1,"Basic dTpw");}#[test]fn proxy_inherit(){let mut w=Workspace::default();w.settings["proxy"]=json!({"mode":"manual","url":"http://localhost:1"});let r=RequestSpec{url:"http://localhost".into(),settings:json!({"proxy":{"mode":"inherit"}}),..Default::default()};assert_eq!(prepare(&w,&r).unwrap().settings["proxy"]["mode"],"manual");}}
+pub struct HttpEngine {
+    clients: Mutex<HashMap<String, Client>>,
+    pub jar: Arc<CookieStoreMutex>,
+    pub cancellations: Mutex<HashMap<String, CancellationToken>>,
+    pub temp: PathBuf,
+}
+fn network(ws: &Workspace, r: &RequestSpec) -> Value {
+    let mut s = ws.settings.clone();
+    if let Some(e) = ws
+        .environments
+        .iter()
+        .find(|e| Some(&e.id) == ws.active_environment.as_ref())
+    {
+        merge(&mut s, &e.settings)
+    }
+    merge(&mut s, &r.settings);
+    s
+}
+fn merge(a: &mut Value, b: &Value) {
+    if let Some(b) = b.as_object() {
+        for (k, v) in b {
+            if !v.is_null() && !(k == "proxy" && v["mode"] == "inherit") {
+                a[k] = v.clone()
+            }
+        }
+    }
+}
+fn auth(ws: &Workspace, r: &RequestSpec) -> Value {
+    if r.auth["type"] != "inherit" && !r.auth.is_null() {
+        return r.auth.clone();
+    }
+    let item = ws
+        .items
+        .iter()
+        .find(|i| i.request.as_ref().is_some_and(|x| x.id == r.id));
+    if let Some(i) = item {
+        let mut p = i.parent_id.clone();
+        let mut visited = std::collections::HashSet::new();
+        while let Some(pid) = p {
+            if !visited.insert(pid.clone()) {
+                break;
+            }
+            if let Some(f) = ws.items.iter().find(|x| x.id == pid) {
+                if !f.auth.is_null() && f.auth["type"] != "inherit" {
+                    return f.auth.clone();
+                }
+                p = f.parent_id.clone()
+            } else {
+                break;
+            }
+        }
+        if let Some(c) = ws.collections.iter().find(|c| c.id == i.collection_id) {
+            return c.auth.clone();
+        }
+    }
+    json!({"type":"noauth"})
+}
+fn field(a: &Value, kind: &str, key: &str) -> String {
+    a[key]
+        .as_str()
+        .or_else(|| {
+            a[kind]
+                .as_array()
+                .and_then(|a| a.iter().find(|v| v["key"] == key))
+                .and_then(|v| v["value"].as_str())
+        })
+        .unwrap_or_default()
+        .into()
+}
+pub fn prepare(ws: &Workspace, r: &RequestSpec) -> Result<PreparedRequest> {
+    let cid = ws
+        .items
+        .iter()
+        .find(|i| i.request.as_ref().is_some_and(|x| x.id == r.id))
+        .map(|i| i.collection_id.as_str());
+    let mut vars = variables::context(ws, cid)?;
+    let resolve = |s: &str| variables::resolve(s, &vars);
+    let raw = resolve(&r.url)?;
+    let mut u = url::Url::parse(&raw)
+        .map_err(|_| AppError::new("INVALID_URL", "Enter an absolute HTTP or HTTPS URL"))?;
+    if !["http", "https"].contains(&u.scheme()) {
+        return Err(AppError::new(
+            "INVALID_URL",
+            "Only HTTP and HTTPS are supported",
+        ));
+    }
+    if !r.params.is_empty() {
+        u.set_query(None);
+        for p in r.params.iter().filter(|p| p.enabled && !p.key.is_empty()) {
+            u.query_pairs_mut()
+                .append_pair(&resolve(&p.key)?, &resolve(&p.value)?);
+        }
+    }
+    let mut headers = vec![];
+    for p in r.headers.iter().filter(|p| p.enabled && !p.key.is_empty()) {
+        headers.push((resolve(&p.key)?, resolve(&p.value)?))
+    }
+    let a = auth(ws, r);
+    let kind = a["type"].as_str().unwrap_or("noauth");
+    match kind {
+        "bearer" => headers.push((
+            "Authorization".into(),
+            format!("Bearer {}", resolve(&field(&a, kind, "token"))?),
+        )),
+        "basic" => headers.push((
+            "Authorization".into(),
+            format!(
+                "Basic {}",
+                base64::engine::general_purpose::STANDARD.encode(format!(
+                    "{}:{}",
+                    resolve(&field(&a, kind, "username"))?,
+                    resolve(&field(&a, kind, "password"))?
+                ))
+            ),
+        )),
+        "apikey" => {
+            let key = resolve(&field(&a, kind, "key"))?;
+            let value = resolve(&field(&a, kind, "value"))?;
+            if field(&a, kind, "in") == "query" {
+                u.query_pairs_mut().append_pair(&key, &value);
+            } else {
+                headers.push((key, value));
+            }
+        }
+        "noauth" | "inherit" => {}
+        _ => {
+            return Err(AppError::new(
+                "AUTH_UNSUPPORTED",
+                format!("{kind} is preserved but not executable in V1"),
+            ))
+        }
+    }
+    let mut body = r.body.clone();
+    if let Some(raw) = body["raw"].as_str() {
+        body["raw"] = json!(resolve(raw)?)
+    }
+    for mode in ["urlencoded", "formdata"] {
+        if let Some(pairs) = body[mode].as_array_mut() {
+            for p in pairs {
+                if p["type"] != "file" {
+                    if let Some(v) = p["value"].as_str() {
+                        p["value"] = json!(resolve(v)?)
+                    }
+                    if let Some(v) = p["key"].as_str() {
+                        p["key"] = json!(resolve(v)?)
+                    }
+                }
+            }
+        }
+    }
+    let mut settings = network(ws, r);
+    if let Some(p) = settings["proxy"]["url"].as_str() {
+        settings["proxy"]["url"] = json!(resolve(p)?)
+    }
+    let sensitive_keys: &[&str] = match kind {
+        "bearer" => &["token"],
+        "basic" => &["password"],
+        "apikey" => &["value"],
+        _ => &[],
+    };
+    for key in sensitive_keys {
+        let value = variables::resolve(&field(&a, kind, key), &vars)?;
+        if !value.is_empty() {
+            vars.insert(
+                format!("__auth_{key}"),
+                VariableValue {
+                    value,
+                    scope: "Authorization".into(),
+                    secret: true,
+                },
+            );
+        }
+    }
+    for (key, value) in &headers {
+        if ["authorization", "cookie", "proxy-authorization"].contains(&key.to_lowercase().as_str())
+        {
+            vars.insert(
+                format!("__header_{key}"),
+                VariableValue {
+                    value: value.clone(),
+                    scope: "Header".into(),
+                    secret: true,
+                },
+            );
+        }
+    }
+    Ok(PreparedRequest {
+        request: r.clone(),
+        url: u.to_string(),
+        headers,
+        body,
+        settings,
+        vars,
+    })
+}
+pub fn bypass(host: &str, patterns: &str) -> bool {
+    patterns
+        .split([',', '\n', ' '])
+        .filter(|s| !s.is_empty())
+        .any(|p| {
+            let escaped = regex::escape(p).replace("\\*", ".*");
+            regex::Regex::new(&format!("(?i)^{escaped}$")).is_ok_and(|r| r.is_match(host))
+        })
+}
+fn map_error(e: reqwest::Error, proxy: bool) -> AppError {
+    let code = if e.is_timeout() {
+        "REQUEST_TIMEOUT"
+    } else if e.is_connect() {
+        if proxy {
+            "PROXY_CONNECT_FAILED"
+        } else if e.to_string().to_lowercase().contains("certificate") {
+            "TLS_ERROR"
+        } else {
+            "CONNECT_FAILED"
+        }
+    } else if e.is_builder() {
+        "INVALID_REQUEST"
+    } else {
+        "BODY_READ_FAILED"
+    };
+    AppError::new(
+        code,
+        match code {
+            "REQUEST_TIMEOUT" => "Request timed out",
+            "TLS_ERROR" => "TLS certificate verification failed",
+            "PROXY_CONNECT_FAILED" => "Could not connect through proxy",
+            "CONNECT_FAILED" => "Could not connect to server",
+            _ => "HTTP request failed",
+        },
+    )
+}
+impl HttpEngine {
+    pub fn new(temp: PathBuf) -> Self {
+        Self {
+            clients: Mutex::new(HashMap::new()),
+            jar: Arc::new(CookieStoreMutex::new(CookieStore::default())),
+            cancellations: Mutex::new(HashMap::new()),
+            temp,
+        }
+    }
+    fn client(&self, p: &PreparedRequest) -> Result<Client> {
+        let host = url::Url::parse(&p.url)
+            .unwrap()
+            .host_str()
+            .unwrap_or_default()
+            .to_string();
+        let proxy = &p.settings["proxy"];
+        let bypassed = bypass(&host, proxy["noProxy"].as_str().unwrap_or_default());
+        let mode = if bypassed {
+            "off"
+        } else {
+            proxy["mode"].as_str().unwrap_or("off")
+        };
+        let key = format!(
+            "{}|{}|{}|{}|{}",
+            p.settings["verifyTls"],
+            p.settings["followRedirect"],
+            p.settings["caFile"],
+            mode,
+            proxy
+        );
+        let mut clients = self.clients.lock().unwrap();
+        if let Some(c) = clients.get(&key) {
+            return Ok(c.clone());
+        }
+        let mut builder = Client::builder()
+            .cookie_provider(self.jar.clone())
+            .danger_accept_invalid_certs(p.settings["verifyTls"] == false)
+            .redirect(if p.settings["followRedirect"] == false {
+                reqwest::redirect::Policy::none()
+            } else {
+                reqwest::redirect::Policy::limited(10)
+            });
+        if mode == "off" {
+            builder = builder.no_proxy()
+        } else if mode == "manual" {
+            let address = proxy["url"].as_str().unwrap_or_default();
+            let mut px = reqwest::Proxy::all(address)
+                .map_err(|_| AppError::new("INVALID_PROXY", "Invalid proxy URL"))?;
+            if let Some(user) = proxy["username"].as_str().filter(|u| !u.is_empty()) {
+                let password = if let Some(r) = proxy["secretRef"].as_str() {
+                    keyring::Entry::new("LocalPostman", r)
+                        .and_then(|e| e.get_password())
+                        .map_err(|_| {
+                            AppError::new("SECRET_UNAVAILABLE", "Proxy password unavailable")
+                        })?
+                } else {
+                    String::new()
+                };
+                px = px.basic_auth(user, &password)
+            }
+            builder = builder.no_proxy().proxy(px)
+        }
+        if let Some(path) = p.settings["caFile"].as_str().filter(|s| !s.is_empty()) {
+            let bytes = std::fs::read(path)
+                .map_err(|_| AppError::new("FILE_NOT_FOUND", "CA file unavailable"))?;
+            builder = builder.add_root_certificate(
+                reqwest::Certificate::from_pem(&bytes)
+                    .map_err(|_| AppError::new("TLS_ERROR", "Invalid PEM certificate"))?,
+            )
+        }
+        let c = builder
+            .build()
+            .map_err(|e| map_error(e, mode == "manual"))?;
+        if clients.len() >= 32 {
+            clients.clear()
+        }
+        clients.insert(key, c.clone());
+        Ok(c)
+    }
+    pub fn cancel(&self, id: &str) {
+        if let Some(t) = self.cancellations.lock().unwrap().get(id) {
+            t.cancel()
+        }
+    }
+    pub async fn execute(&self, p: PreparedRequest, execution_id: String) -> Result<Response> {
+        let token = CancellationToken::new();
+        self.cancellations
+            .lock()
+            .unwrap()
+            .insert(execution_id.clone(), token.clone());
+        let timeout = p.settings["timeout"].as_u64().unwrap_or(30000).max(1);
+        let result = tokio::select! {_ = token.cancelled()=>Err(AppError::new("REQUEST_CANCELLED","Request cancelled")), result=tokio::time::timeout(Duration::from_millis(timeout),self.perform(&p,&execution_id))=>result.unwrap_or_else(|_|Err(AppError::new("REQUEST_TIMEOUT","Request timed out")))};
+        self.cancellations.lock().unwrap().remove(&execution_id);
+        result
+    }
+    async fn perform(&self, p: &PreparedRequest, id: &str) -> Result<Response> {
+        let started = Instant::now();
+        let client = self.client(p)?;
+        let method = reqwest::Method::from_bytes(p.request.method.as_bytes())
+            .map_err(|_| AppError::new("INVALID_METHOD", "Invalid HTTP method"))?;
+        let mut rq = client.request(method, &p.url);
+        for (k, v) in &p.headers {
+            rq = rq.header(k, v)
+        }
+        let has_type = p
+            .headers
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("content-type"));
+        match p.body["mode"].as_str().unwrap_or("none") {
+            "raw" => {
+                rq = rq.body(p.body["raw"].as_str().unwrap_or_default().to_string());
+                if !has_type {
+                    let lang = p.body["options"]["raw"]["language"]
+                        .as_str()
+                        .unwrap_or("text");
+                    rq = rq.header(
+                        "Content-Type",
+                        match lang {
+                            "json" => "application/json",
+                            "xml" => "application/xml",
+                            "html" => "text/html",
+                            "javascript" => "application/javascript",
+                            _ => "text/plain",
+                        },
+                    )
+                }
+            }
+            "urlencoded" => {
+                let fields: Vec<(String, String)> = p.body["urlencoded"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|v| v["disabled"] != true)
+                    .map(|v| {
+                        (
+                            v["key"].as_str().unwrap_or_default().into(),
+                            v["value"].as_str().unwrap_or_default().into(),
+                        )
+                    })
+                    .collect();
+                rq = rq.form(&fields)
+            }
+            "formdata" => {
+                let mut form = reqwest::multipart::Form::new();
+                for f in p.body["formdata"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|v| v["disabled"] != true)
+                {
+                    let key = f["key"].as_str().unwrap_or_default().to_string();
+                    if f["type"] == "file" {
+                        let paths: Vec<&str> = if let Some(a) = f["src"].as_array() {
+                            a.iter().filter_map(Value::as_str).collect()
+                        } else {
+                            vec![f["src"].as_str().unwrap_or_default()]
+                        };
+                        for path in paths {
+                            let file = tokio::fs::File::open(path).await.map_err(|_| {
+                                AppError::new("FILE_NOT_FOUND", "Upload file unavailable")
+                            })?;
+                            let len = file
+                                .metadata()
+                                .await
+                                .map_err(|_| {
+                                    AppError::new("BODY_READ_FAILED", "Cannot read upload file")
+                                })?
+                                .len();
+                            let part = reqwest::multipart::Part::stream_with_length(
+                                reqwest::Body::wrap_stream(ReaderStream::new(file)),
+                                len,
+                            )
+                            .file_name(
+                                std::path::Path::new(path)
+                                    .file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .into_owned(),
+                            );
+                            form = form.part(key.clone(), part)
+                        }
+                    } else {
+                        form = form.text(key, f["value"].as_str().unwrap_or_default().to_string())
+                    }
+                }
+                rq = rq.multipart(form)
+            }
+            "file" => {
+                let file =
+                    tokio::fs::File::open(p.body["file"]["src"].as_str().unwrap_or_default())
+                        .await
+                        .map_err(|_| AppError::new("FILE_NOT_FOUND", "Binary file unavailable"))?;
+                let length = file
+                    .metadata()
+                    .await
+                    .map_err(|_| AppError::new("BODY_READ_FAILED", "Cannot read binary file"))?
+                    .len();
+                rq = rq
+                    .header("Content-Length", length)
+                    .body(reqwest::Body::wrap_stream(ReaderStream::new(file)))
+            }
+            _ => {}
+        }
+        let manual = p.settings["proxy"]["mode"] == "manual";
+        let mut response = rq.send().await.map_err(|e| map_error(e, manual))?;
+        let status = response.status();
+        if status.as_u16() == 407 {
+            return Err(AppError::new(
+                "PROXY_AUTHENTICATION_FAILED",
+                "Proxy authentication failed",
+            ));
+        }
+        let headers = response
+            .headers()
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or_default().to_string()))
+            .collect();
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        let final_url = response.url().to_string();
+        let redirects = if final_url != p.url {
+            vec![p.url.clone(), final_url.clone()]
+        } else {
+            vec![]
+        };
+        tokio::fs::create_dir_all(&self.temp)
+            .await
+            .map_err(|_| AppError::new("BODY_READ_FAILED", "Cannot create response cache"))?;
+        let path = self.temp.join(format!("{}.response", uuid::Uuid::new_v4()));
+        let mut file = tokio::fs::File::create(&path)
+            .await
+            .map_err(|_| AppError::new("BODY_READ_FAILED", "Cannot cache response"))?;
+        let mut preview = vec![];
+        let mut size = 0;
+        while let Some(chunk) = response.chunk().await.map_err(|e| map_error(e, manual))? {
+            size += chunk.len();
+            file.write_all(&chunk)
+                .await
+                .map_err(|_| AppError::new("BODY_READ_FAILED", "Cannot write response cache"))?;
+            if size <= 20 * 1024 * 1024 {
+                preview.extend_from_slice(&chunk)
+            } else {
+                preview.clear()
+            }
+        }
+        file.flush()
+            .await
+            .map_err(|_| AppError::new("BODY_READ_FAILED", id))?;
+        let binary = std::str::from_utf8(&preview).is_err();
+        let body = if binary {
+            String::new()
+        } else {
+            String::from_utf8_lossy(&preview).into_owned()
+        };
+        Ok(Response {
+            status: status.as_u16(),
+            status_text: status.canonical_reason().unwrap_or_default().into(),
+            headers,
+            body,
+            duration: started.elapsed().as_millis(),
+            size,
+            content_type,
+            final_url,
+            redirects,
+            file: path.to_string_lossy().into_owned(),
+            truncated: size > 20 * 1024 * 1024,
+            binary,
+        })
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn no_proxy_patterns() {
+        for (h, p) in [
+            ("localhost", "localhost"),
+            ("192.168.1.2", "192.168.*"),
+            ("a.company.com", "*.company.com"),
+        ] {
+            assert!(bypass(h, p))
+        }
+        assert!(!bypass("evilcompany.com", "*.company.com"));
+    }
+    #[test]
+    fn auth_and_params() {
+        let w = Workspace::default();
+        let r = RequestSpec {
+            url: "https://example.com".into(),
+            params: vec![Pair {
+                key: "a".into(),
+                value: "a b".into(),
+                ..Default::default()
+            }],
+            auth: json!({"type":"basic","username":"u","password":"p"}),
+            ..Default::default()
+        };
+        let p = prepare(&w, &r).unwrap();
+        assert!(p.url.contains("a=a+b"));
+        assert_eq!(p.headers[0].1, "Basic dTpw");
+    }
+    #[test]
+    fn proxy_inherit() {
+        let mut w = Workspace::default();
+        w.settings["proxy"] = json!({"mode":"manual","url":"http://localhost:1"});
+        let r = RequestSpec {
+            url: "http://localhost".into(),
+            settings: json!({"proxy":{"mode":"inherit"}}),
+            ..Default::default()
+        };
+        assert_eq!(prepare(&w, &r).unwrap().settings["proxy"]["mode"], "manual");
+    }
+}

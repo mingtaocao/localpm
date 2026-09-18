@@ -1,17 +1,185 @@
 use crate::domain::*;
-use rusqlite::{params,Connection};
-use serde_json::{json,Value};
-use std::{path::Path,sync::Mutex};
-pub struct Storage {pub db:Mutex<Connection>}
-fn err(e:impl ToString)->AppError{AppError::new("DATABASE_ERROR",e)}
-impl Storage {
- pub fn open(path:&Path)->Result<Self>{let db=Connection::open(path).map_err(err)?;db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY); INSERT OR IGNORE INTO schema_migrations VALUES(1); CREATE TABLE IF NOT EXISTS workspaces(id TEXT PRIMARY KEY,name TEXT NOT NULL,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS collections(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS collection_items(id TEXT PRIMARY KEY,collection_id TEXT,parent_id TEXT,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY,item_id TEXT UNIQUE,request_json TEXT,revision INTEGER NOT NULL DEFAULT 1); CREATE TABLE IF NOT EXISTS environments(id TEXT PRIMARY KEY,document TEXT); CREATE TABLE IF NOT EXISTS variables(id TEXT PRIMARY KEY,document TEXT); CREATE TABLE IF NOT EXISTS settings(id TEXT PRIMARY KEY,document TEXT); CREATE TABLE IF NOT EXISTS cookies(id TEXT PRIMARY KEY,document TEXT); CREATE TABLE IF NOT EXISTS drafts(id TEXT PRIMARY KEY,document TEXT); CREATE TABLE IF NOT EXISTS history(id INTEGER PRIMARY KEY AUTOINCREMENT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,snapshot TEXT,response TEXT);").map_err(err)?;Ok(Self{db:Mutex::new(db)})}
- pub fn load(&self)->Result<Workspace>{let db=self.db.lock().map_err(err)?;let mut s=db.prepare("SELECT document FROM workspaces WHERE id='default'").map_err(err)?;let mut rows=s.query([]).map_err(err)?;match rows.next().map_err(err)?{Some(row)=>serde_json::from_str(&row.get::<_,String>(0).map_err(err)?).map_err(err),None=>Ok(Workspace::default())}}
- pub fn save(&self,ws:&Workspace)->Result<()>{let mut db=self.db.lock().map_err(err)?;let tx=db.transaction().map_err(err)?;tx.execute("INSERT INTO workspaces VALUES('default','My Workspace',?1) ON CONFLICT(id) DO UPDATE SET document=excluded.document",[serde_json::to_string(ws).map_err(err)?]).map_err(err)?;for table in ["collections","collection_items","requests","environments"]{tx.execute(&format!("DELETE FROM {table}"),[]).map_err(err)?;}for c in &ws.collections{tx.execute("INSERT INTO collections VALUES(?1,?2)",params![c.id,serde_json::to_string(c).map_err(err)?]).map_err(err)?;}for i in &ws.items{tx.execute("INSERT INTO collection_items VALUES(?1,?2,?3,?4)",params![i.id,i.collection_id,i.parent_id,serde_json::to_string(i).map_err(err)?]).map_err(err)?;if let Some(r)=&i.request{tx.execute("INSERT INTO requests(id,item_id,request_json) VALUES(?1,?2,?3)",params![r.id,i.id,serde_json::to_string(r).map_err(err)?]).map_err(err)?;}}for e in &ws.environments{tx.execute("INSERT INTO environments VALUES(?1,?2)",params![e.id,serde_json::to_string(e).map_err(err)?]).map_err(err)?;}tx.commit().map_err(err)}
- pub fn draft(&self,id:&str,request:Option<&RequestSpec>)->Result<()>{let db=self.db.lock().map_err(err)?;if let Some(r)=request{db.execute("INSERT INTO drafts VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,serde_json::to_string(r).map_err(err)?]).map_err(err)?;}else{db.execute("DELETE FROM drafts WHERE id=?1",[id]).map_err(err)?;}Ok(())}
- pub fn drafts(&self)->Result<Vec<RequestSpec>>{let db=self.db.lock().map_err(err)?;let mut s=db.prepare("SELECT document FROM drafts").map_err(err)?;let rows=s.query_map([],|r|r.get::<_,String>(0)).map_err(err)?;rows.map(|r|serde_json::from_str(&r.map_err(err)?).map_err(err)).collect()}
- pub fn history(&self)->Result<Vec<Value>>{let db=self.db.lock().map_err(err)?;let mut stmt=db.prepare("SELECT id,created_at,snapshot,response FROM history ORDER BY id DESC").map_err(err)?;let rows=stmt.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"time":r.get::<_,String>(1)?,"snapshot":serde_json::from_str::<Value>(&r.get::<_,String>(2)?).unwrap_or_default(),"response":serde_json::from_str::<Value>(&r.get::<_,String>(3)?).unwrap_or_default()}))).map_err(err)?;rows.map(|r|r.map_err(err)).collect()}
- pub fn add_history(&self,request:&RequestSpec,response:&Value,limit:i64)->Result<()>{let db=self.db.lock().map_err(err)?;db.execute("INSERT INTO history(snapshot,response) VALUES(?1,?2)",params![serde_json::to_string(request).map_err(err)?,response.to_string()]).map_err(err)?;if limit>0{db.execute("DELETE FROM history WHERE id NOT IN (SELECT id FROM history ORDER BY id DESC LIMIT ?1)",[limit]).map_err(err)?;}Ok(())}
- pub fn clear_history(&self)->Result<()>{self.db.lock().map_err(err)?.execute("DELETE FROM history",[]).map_err(err)?;Ok(())}
+use rusqlite::{params, Connection};
+use serde_json::{json, Value};
+use std::{path::Path, sync::Mutex};
+pub struct Storage {
+    pub db: Mutex<Connection>,
 }
-#[cfg(test)]mod tests{use super::*;#[test]fn migration_restart_draft_history(){let dir=tempfile::tempdir().unwrap();let p=dir.path().join("db");{let s=Storage::open(&p).unwrap();let mut w=Workspace::default();w.collections.push(Collection{id:"c".into(),name:"Persist".into(),auth:Value::Null,variables:vec![],metadata:Value::Null});s.save(&w).unwrap();s.draft("r",Some(&RequestSpec::default())).unwrap();for _ in 0..4{s.add_history(&RequestSpec::default(),&json!({}),2).unwrap();}}let s=Storage::open(&p).unwrap();assert_eq!(s.load().unwrap().collections[0].name,"Persist");assert_eq!(s.drafts().unwrap().len(),1);assert_eq!(s.history().unwrap().len(),2);assert_eq!(s.db.lock().unwrap().query_row("SELECT COUNT(*) FROM schema_migrations",[],|r|r.get::<_,i64>(0)).unwrap(),1);}}
+fn err(e: impl ToString) -> AppError {
+    AppError::new("DATABASE_ERROR", e)
+}
+impl Storage {
+    pub fn open(path: &Path) -> Result<Self> {
+        let db = Connection::open(path).map_err(err)?;
+        db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY); INSERT OR IGNORE INTO schema_migrations VALUES(1); CREATE TABLE IF NOT EXISTS workspaces(id TEXT PRIMARY KEY,name TEXT NOT NULL,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS collections(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS collection_items(id TEXT PRIMARY KEY,collection_id TEXT,parent_id TEXT,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY,item_id TEXT UNIQUE,request_json TEXT,revision INTEGER NOT NULL DEFAULT 1); CREATE TABLE IF NOT EXISTS environments(id TEXT PRIMARY KEY,document TEXT); CREATE TABLE IF NOT EXISTS variables(id TEXT PRIMARY KEY,document TEXT); CREATE TABLE IF NOT EXISTS settings(id TEXT PRIMARY KEY,document TEXT); CREATE TABLE IF NOT EXISTS cookies(id TEXT PRIMARY KEY,document TEXT); CREATE TABLE IF NOT EXISTS drafts(id TEXT PRIMARY KEY,document TEXT); CREATE TABLE IF NOT EXISTS history(id INTEGER PRIMARY KEY AUTOINCREMENT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,snapshot TEXT,response TEXT);").map_err(err)?;
+        Ok(Self { db: Mutex::new(db) })
+    }
+    pub fn cookies(&self) -> Result<reqwest_cookie_store::CookieStore> {
+        let db = self.db.lock().map_err(err)?;
+        let text = db.query_row("SELECT document FROM cookies WHERE id='jar'", [], |r| {
+            r.get::<_, String>(0)
+        });
+        match text {
+            Ok(text) => serde_json::from_str(&text).map_err(err),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(Default::default()),
+            Err(e) => Err(err(e)),
+        }
+    }
+    pub fn save_cookies(&self, jar: &reqwest_cookie_store::CookieStore) -> Result<()> {
+        let text = serde_json::to_string(jar).map_err(err)?;
+        self.db.lock().map_err(err)?.execute("INSERT INTO cookies VALUES('jar',?1) ON CONFLICT(id) DO UPDATE SET document=excluded.document",[text]).map_err(err)?;
+        Ok(())
+    }
+    pub fn backup(&self, path: &Path) -> Result<()> {
+        self.db
+            .lock()
+            .map_err(err)?
+            .backup("main", path, None)
+            .map_err(err)
+    }
+    pub fn load(&self) -> Result<Workspace> {
+        let db = self.db.lock().map_err(err)?;
+        let mut s = db
+            .prepare("SELECT document FROM workspaces WHERE id='default'")
+            .map_err(err)?;
+        let mut rows = s.query([]).map_err(err)?;
+        match rows.next().map_err(err)? {
+            Some(row) => serde_json::from_str(&row.get::<_, String>(0).map_err(err)?).map_err(err),
+            None => Ok(Workspace::default()),
+        }
+    }
+    pub fn save(&self, ws: &Workspace) -> Result<()> {
+        let mut db = self.db.lock().map_err(err)?;
+        let tx = db.transaction().map_err(err)?;
+        tx.execute("INSERT INTO workspaces VALUES('default','My Workspace',?1) ON CONFLICT(id) DO UPDATE SET document=excluded.document",[serde_json::to_string(ws).map_err(err)?]).map_err(err)?;
+        for table in [
+            "collections",
+            "collection_items",
+            "requests",
+            "environments",
+        ] {
+            tx.execute(&format!("DELETE FROM {table}"), [])
+                .map_err(err)?;
+        }
+        for c in &ws.collections {
+            tx.execute(
+                "INSERT INTO collections VALUES(?1,?2)",
+                params![c.id, serde_json::to_string(c).map_err(err)?],
+            )
+            .map_err(err)?;
+        }
+        for i in &ws.items {
+            tx.execute(
+                "INSERT INTO collection_items VALUES(?1,?2,?3,?4)",
+                params![
+                    i.id,
+                    i.collection_id,
+                    i.parent_id,
+                    serde_json::to_string(i).map_err(err)?
+                ],
+            )
+            .map_err(err)?;
+            if let Some(r) = &i.request {
+                tx.execute(
+                    "INSERT INTO requests(id,item_id,request_json) VALUES(?1,?2,?3)",
+                    params![r.id, i.id, serde_json::to_string(r).map_err(err)?],
+                )
+                .map_err(err)?;
+            }
+        }
+        for e in &ws.environments {
+            tx.execute(
+                "INSERT INTO environments VALUES(?1,?2)",
+                params![e.id, serde_json::to_string(e).map_err(err)?],
+            )
+            .map_err(err)?;
+        }
+        tx.commit().map_err(err)
+    }
+    pub fn draft(&self, id: &str, request: Option<&RequestSpec>) -> Result<()> {
+        let db = self.db.lock().map_err(err)?;
+        if let Some(r) = request {
+            db.execute("INSERT INTO drafts VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,serde_json::to_string(r).map_err(err)?]).map_err(err)?;
+        } else {
+            db.execute("DELETE FROM drafts WHERE id=?1", [id])
+                .map_err(err)?;
+        }
+        Ok(())
+    }
+    pub fn drafts(&self) -> Result<Vec<RequestSpec>> {
+        let db = self.db.lock().map_err(err)?;
+        let mut s = db.prepare("SELECT document FROM drafts").map_err(err)?;
+        let rows = s.query_map([], |r| r.get::<_, String>(0)).map_err(err)?;
+        rows.map(|r| serde_json::from_str(&r.map_err(err)?).map_err(err))
+            .collect()
+    }
+    pub fn history(&self) -> Result<Vec<Value>> {
+        let db = self.db.lock().map_err(err)?;
+        let mut stmt = db
+            .prepare("SELECT id,created_at,snapshot,response FROM history ORDER BY id DESC")
+            .map_err(err)?;
+        let rows=stmt.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"time":r.get::<_,String>(1)?,"snapshot":serde_json::from_str::<Value>(&r.get::<_,String>(2)?).unwrap_or_default(),"response":serde_json::from_str::<Value>(&r.get::<_,String>(3)?).unwrap_or_default()}))).map_err(err)?;
+        rows.map(|r| r.map_err(err)).collect()
+    }
+    pub fn add_history(&self, request: &RequestSpec, response: &Value, limit: i64) -> Result<()> {
+        let db = self.db.lock().map_err(err)?;
+        db.execute(
+            "INSERT INTO history(snapshot,response) VALUES(?1,?2)",
+            params![
+                serde_json::to_string(request).map_err(err)?,
+                response.to_string()
+            ],
+        )
+        .map_err(err)?;
+        if limit > 0 {
+            db.execute("DELETE FROM history WHERE id NOT IN (SELECT id FROM history ORDER BY id DESC LIMIT ?1)",[limit]).map_err(err)?;
+        }
+        Ok(())
+    }
+    pub fn clear_history(&self) -> Result<()> {
+        self.db
+            .lock()
+            .map_err(err)?
+            .execute("DELETE FROM history", [])
+            .map_err(err)?;
+        Ok(())
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn migration_restart_draft_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("db");
+        {
+            let s = Storage::open(&p).unwrap();
+            let mut w = Workspace::default();
+            w.collections.push(Collection {
+                id: "c".into(),
+                name: "Persist".into(),
+                auth: Value::Null,
+                variables: vec![],
+                metadata: Value::Null,
+            });
+            s.save(&w).unwrap();
+            s.draft("r", Some(&RequestSpec::default())).unwrap();
+            for _ in 0..4 {
+                s.add_history(&RequestSpec::default(), &json!({}), 2)
+                    .unwrap();
+            }
+        }
+        let s = Storage::open(&p).unwrap();
+        assert_eq!(s.load().unwrap().collections[0].name, "Persist");
+        assert_eq!(s.drafts().unwrap().len(), 1);
+        assert_eq!(s.history().unwrap().len(), 2);
+        assert_eq!(
+            s.db.lock()
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+    }
+}

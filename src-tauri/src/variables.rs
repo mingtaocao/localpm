@@ -1,7 +1,158 @@
 use crate::domain::*;
 use regex::Regex;
 use std::collections::BTreeSet;
-pub fn resolve(input:&str, vars:&Variables)->Result<String> {fn inner(input:&str,vars:&Variables,stack:&mut Vec<String>)->Result<String>{let re=Regex::new(r"\{\{\s*([^{}]+?)\s*\}\}").unwrap();let mut out=String::new();let mut end=0;for cap in re.captures_iter(input){let m=cap.get(0).unwrap();out.push_str(&input[end..m.start()]);let key=cap[1].trim().to_string();if stack.contains(&key){return Err(AppError::new("VARIABLE_CYCLE",format!("Variable cycle: {key}")))}if stack.len()>=10{return Err(AppError::new("VARIABLE_DEPTH","Variable depth exceeds 10"))}let v=vars.get(&key).ok_or_else(||AppError::new("VARIABLE_UNRESOLVED",format!("unresolved variable: {key}")))?;stack.push(key);out.push_str(&inner(&v.value,vars,stack)?);stack.pop();end=m.end();}out.push_str(&input[end..]);Ok(out)}inner(input,vars,&mut vec![])}
-pub fn context(ws:&Workspace,collection:Option<&str>)->Result<Variables>{let mut vars=Variables::new();let mut add=|pairs:&[Pair],scope:&str|->Result<()>{for p in pairs.iter().filter(|p|p.enabled){let value=if let Some(r)=&p.secret_ref{keyring::Entry::new("LocalPostman",r).and_then(|e|e.get_password()).map_err(|_|AppError::new("SECRET_UNAVAILABLE",format!("Secret unavailable: {}",p.key)))?}else{p.value.clone()};vars.insert(p.key.clone(),VariableValue{value,scope:scope.into(),secret:p.is_secret});}Ok(())};add(&ws.globals,"Global")?;if let Some(c)=ws.collections.iter().find(|c|Some(c.id.as_str())==collection){add(&c.variables,"Collection")?}if let Some(e)=ws.environments.iter().find(|e|Some(&e.id)==ws.active_environment.as_ref()){add(&e.variables,"Environment")?}Ok(vars)}
-pub fn redact(text:&str,vars:&Variables)->String{let mut out=text.to_string();let values:BTreeSet<_>=vars.values().filter(|v|v.secret&&!v.value.is_empty()).map(|v|v.value.clone()).collect();for value in values{out=out.replace(&value,"••••••••")}out}
-#[cfg(test)] mod tests {use super::*;fn vars()->Variables{[("host".into(),VariableValue{value:"https://{{domain}}".into(),scope:"Global".into(),secret:false}),("domain".into(),VariableValue{value:"example.com".into(),scope:"Environment".into(),secret:false})].into()}#[test]fn recursive(){assert_eq!(resolve("{{host}}/x",&vars()).unwrap(),"https://example.com/x")}#[test]fn unresolved(){assert_eq!(resolve("{{missing}}",&vars()).unwrap_err().code,"VARIABLE_UNRESOLVED")}#[test]fn cycle(){let mut v=vars();v.get_mut("domain").unwrap().value="{{host}}".into();assert_eq!(resolve("{{host}}",&v).unwrap_err().code,"VARIABLE_CYCLE")}#[test]fn precedence(){let mut w=Workspace::default();w.globals.push(Pair{key:"a".into(),value:"global".into(),..Default::default()});w.collections.push(Collection{id:"c".into(),name:"C".into(),auth:serde_json::Value::Null,variables:vec![Pair{key:"a".into(),value:"collection".into(),..Default::default()}],metadata:serde_json::Value::Null});assert_eq!(context(&w,Some("c")).unwrap()["a"].value,"collection");}}
+pub fn resolve(input: &str, vars: &Variables) -> Result<String> {
+    fn inner(input: &str, vars: &Variables, stack: &mut Vec<String>) -> Result<String> {
+        let re = Regex::new(r"\{\{\s*([^{}]+?)\s*\}\}").unwrap();
+        let mut out = String::new();
+        let mut end = 0;
+        for cap in re.captures_iter(input) {
+            let m = cap.get(0).unwrap();
+            out.push_str(&input[end..m.start()]);
+            let key = cap[1].trim().to_string();
+            if stack.contains(&key) {
+                return Err(AppError::new(
+                    "VARIABLE_CYCLE",
+                    format!("Variable cycle: {key}"),
+                ));
+            }
+            if stack.len() >= 10 {
+                return Err(AppError::new("VARIABLE_DEPTH", "Variable depth exceeds 10"));
+            }
+            let v = vars.get(&key).ok_or_else(|| {
+                AppError::new("VARIABLE_UNRESOLVED", format!("unresolved variable: {key}"))
+            })?;
+            stack.push(key);
+            out.push_str(&inner(&v.value, vars, stack)?);
+            stack.pop();
+            end = m.end();
+        }
+        out.push_str(&input[end..]);
+        Ok(out)
+    }
+    inner(input, vars, &mut vec![])
+}
+pub fn context(ws: &Workspace, collection: Option<&str>) -> Result<Variables> {
+    let mut vars = Variables::new();
+    let mut add = |pairs: &[Pair], scope: &str| -> Result<()> {
+        for p in pairs.iter().filter(|p| p.enabled) {
+            let value = if let Some(r) = &p.secret_ref {
+                keyring::Entry::new("LocalPostman", r)
+                    .and_then(|e| e.get_password())
+                    .map_err(|_| {
+                        AppError::new(
+                            "SECRET_UNAVAILABLE",
+                            format!("Secret unavailable: {}", p.key),
+                        )
+                    })?
+            } else {
+                p.value.clone()
+            };
+            vars.insert(
+                p.key.clone(),
+                VariableValue {
+                    value,
+                    scope: scope.into(),
+                    secret: p.is_secret,
+                },
+            );
+        }
+        Ok(())
+    };
+    add(&ws.globals, "Global")?;
+    if let Some(c) = ws
+        .collections
+        .iter()
+        .find(|c| Some(c.id.as_str()) == collection)
+    {
+        add(&c.variables, "Collection")?
+    }
+    if let Some(e) = ws
+        .environments
+        .iter()
+        .find(|e| Some(&e.id) == ws.active_environment.as_ref())
+    {
+        add(&e.variables, "Environment")?
+    }
+    Ok(vars)
+}
+pub fn redact(text: &str, vars: &Variables) -> String {
+    let mut out = text.to_string();
+    let values: BTreeSet<_> = vars
+        .values()
+        .filter(|v| v.secret && !v.value.is_empty())
+        .map(|v| v.value.clone())
+        .collect();
+    for value in values {
+        out = out.replace(&value, "••••••••");
+        let encoded: String = url::form_urlencoded::byte_serialize(value.as_bytes()).collect();
+        out = out.replace(&encoded, "••••••••")
+    }
+    out
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn vars() -> Variables {
+        [
+            (
+                "host".into(),
+                VariableValue {
+                    value: "https://{{domain}}".into(),
+                    scope: "Global".into(),
+                    secret: false,
+                },
+            ),
+            (
+                "domain".into(),
+                VariableValue {
+                    value: "example.com".into(),
+                    scope: "Environment".into(),
+                    secret: false,
+                },
+            ),
+        ]
+        .into()
+    }
+    #[test]
+    fn recursive() {
+        assert_eq!(
+            resolve("{{host}}/x", &vars()).unwrap(),
+            "https://example.com/x"
+        )
+    }
+    #[test]
+    fn unresolved() {
+        assert_eq!(
+            resolve("{{missing}}", &vars()).unwrap_err().code,
+            "VARIABLE_UNRESOLVED"
+        )
+    }
+    #[test]
+    fn cycle() {
+        let mut v = vars();
+        v.get_mut("domain").unwrap().value = "{{host}}".into();
+        assert_eq!(resolve("{{host}}", &v).unwrap_err().code, "VARIABLE_CYCLE")
+    }
+    #[test]
+    fn precedence() {
+        let mut w = Workspace::default();
+        w.globals.push(Pair {
+            key: "a".into(),
+            value: "global".into(),
+            ..Default::default()
+        });
+        w.collections.push(Collection {
+            id: "c".into(),
+            name: "C".into(),
+            auth: serde_json::Value::Null,
+            variables: vec![Pair {
+                key: "a".into(),
+                value: "collection".into(),
+                ..Default::default()
+            }],
+            metadata: serde_json::Value::Null,
+        });
+        assert_eq!(context(&w, Some("c")).unwrap()["a"].value, "collection");
+    }
+}
