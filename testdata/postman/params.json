@@ -1,0 +1,29 @@
+{
+  "info": {
+    "name": "params",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "host",
+      "value": "http://127.0.0.1:47831"
+    }
+  ],
+  "item": [
+    {
+      "name": "Echo",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://127.0.0.1:47831/echo?q=a%20b",
+          "query": [
+            {
+              "key": "q",
+              "value": "a b"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

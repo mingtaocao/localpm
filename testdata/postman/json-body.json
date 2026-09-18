@@ -1,0 +1,30 @@
+{
+  "info": {
+    "name": "json-body",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "host",
+      "value": "http://127.0.0.1:47831"
+    }
+  ],
+  "item": [
+    {
+      "name": "Echo",
+      "request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:47831/echo",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"a\":1}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
