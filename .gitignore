@@ -7,3 +7,4 @@ artifacts/*
 .ideatest-results/
 playwright-report/
 *.tsbuildinfo
+.idea
