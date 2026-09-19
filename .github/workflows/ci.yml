@@ -1,4 +1,4 @@
-name: Native checks and installers
+name: Native checks
 on:
   push:
   pull_request:
@@ -40,14 +40,3 @@ jobs:
       - run: cargo build --manifest-path src-tauri/Cargo.toml --example test_bridge
       - run: npx playwright install chromium
       - run: npm run test:e2e
-      - name: Build native unsigned installer
-        run: npm run tauri build -- --target ${{ matrix.target }} --bundles ${{ runner.os == 'Windows' && 'nsis' || 'dmg' }}
-        env:
-          APPLE_SIGNING_IDENTITY: '-'
-      - uses: actions/upload-artifact@v4
-        with:
-          name: LocalPostman-${{ runner.os }}-unsigned
-          path: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
-            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-          if-no-files-found: error

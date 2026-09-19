@@ -1,64 +1,115 @@
-name: Release
+name: Build and Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version matching the project, e.g. v0.1.0'
+        required: true
+        default: 'v0.1.0'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
 
 jobs:
-  release:
-    permissions:
-      contents: write
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate version and ensure tag is unused
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, re, tomllib
+          from pathlib import Path
+          version = os.environ['RELEASE_VERSION']
+          if not re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
+              raise SystemExit('Version must be vMAJOR.MINOR.PATCH, e.g. v0.1.0')
+          versions = [json.loads(Path(p).read_text())['version'] for p in
+                      ['package.json', 'package-lock.json', 'src-tauri/tauri.conf.json']]
+          versions.append(tomllib.loads(Path('src-tauri/Cargo.toml').read_text())['package']['version'])
+          if any(v != version[1:] for v in versions):
+              raise SystemExit(f'Update and commit project versions first: {versions} != {version[1:]}')
+          PYTHON
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_VERSION"; then
+            echo "Tag $RELEASE_VERSION already exists; use a new version."
+            exit 1
+          fi
 
+  build:
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
-            args: '--target x86_64-pc-windows-msvc --bundles nsis'
+            bundle: nsis
+            artifact: windows
+            extension: exe
           - platform: macos-latest
             target: aarch64-apple-darwin
-            args: '--target aarch64-apple-darwin --bundles dmg'
-
+            bundle: dmg
+            artifact: macos
+            extension: dmg
     runs-on: ${{ matrix.platform }}
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build and publish
-        uses: tauri-apps/tauri-action@v1
+      - run: npm ci
+      - name: Build installer
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && '-' || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
+        run: npm run tauri build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundle }}
+      - uses: actions/upload-artifact@v4
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Local Postman ${{ github.ref_name }}'
-          releaseBody: |
-            Local Postman ${{ github.ref_name }}
+          name: ${{ matrix.artifact }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }}/*.${{ matrix.extension }}
+          if-no-files-found: error
 
-            Windows: 下载 .exe（unsigned）
-            macOS Apple Silicon: 下载 .dmg（ad-hoc signed，未公证）
-          releaseDraft: false
-          prerelease: false
-          args: ${{ matrix.args }}
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-files
+      - name: Publish both installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          shopt -s nullglob
+          windows=(release-files/windows/*.exe)
+          macos=(release-files/macos/*.dmg)
+          if (( ${#windows[@]} == 0 || ${#macos[@]} == 0 )); then
+            echo "Both Windows and macOS installers are required."
+            exit 1
+          fi
+          gh release create "$RELEASE_VERSION" "${windows[@]}" "${macos[@]}" \
+            --target "$RELEASE_SHA" \
+            --title "Local Postman $RELEASE_VERSION" \
+            --notes "Windows: unsigned .exe. macOS Apple Silicon: ad-hoc signed .dmg, not notarized." \
+            --generate-notes --draft
+          gh release edit "$RELEASE_VERSION" --draft=false
