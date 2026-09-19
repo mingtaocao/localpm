@@ -77,7 +77,16 @@ npm run tauri build -- --bundles nsis
 
 生成目录：`src-tauri/target/release/bundle/dmg/` 或 `src-tauri/target/release/bundle/nsis/`。
 
-`.github/workflows/ci.yml` 在 Windows/macOS 原生 Runner 上检查、测试并打包；`release.yml` 响应 tag 或手动运行，仅上传安装包为 Actions artifact，不发布正式 Release。目标仓库为 `git@github.com:mingtaocao/localpm.git`。推送后由 GitHub Actions 执行；在线构建结果应以对应工作流运行记录为准。
+`.github/workflows/ci.yml` 保持现有行为：在 Windows/macOS 原生 Runner 上检查、测试并打包为 Actions artifact。独立的 `release.yml` 仅在推送 `v*` tag 时，使用 `tauri-action` 构建 Windows x64 NSIS 和 macOS Apple Silicon DMG，并创建非草稿 GitHub Release、上传安装包。
+
+发布前先将 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 的版本同步，并更新对应锁文件、提交版本改动。当前版本为 `0.1.0`：
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+目标仓库为 `git@github.com:mingtaocao/localpm.git`；安装包在该仓库 Releases 页面下载。workflow 使用内置 `GITHUB_TOKEN`，无需额外个人 Token。Windows 为 unsigned，macOS 为 ad-hoc 签名、未公证。在线发布结果应以对应工作流运行记录为准。
 
 ## 数据与安全边界
 
