@@ -1,1 +1,0 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/types.test.ts","./src/types.ts","./src/components/auth.tsx","./src/components/collectiontree.tsx","./src/components/keyvalue.tsx","./src/components/network.tsx","./src/services/tauriapi.ts","./src/stores/workspace.ts"],"version":"5.9.3"}

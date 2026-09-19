@@ -77,7 +77,7 @@ npm run tauri build -- --bundles nsis
 
 生成目录：`src-tauri/target/release/bundle/dmg/` 或 `src-tauri/target/release/bundle/nsis/`。
 
-`.github/workflows/ci.yml` 在 Windows/macOS 原生 Runner 上检查、测试并打包；`release.yml` 响应 tag 或手动运行，仅上传安装包为 Actions artifact，不发布正式 Release。当前工作区未配置远程 Git 仓库，工作流尚未在线执行。
+`.github/workflows/ci.yml` 在 Windows/macOS 原生 Runner 上检查、测试并打包；`release.yml` 响应 tag 或手动运行，仅上传安装包为 Actions artifact，不发布正式 Release。目标仓库为 `git@github.com:mingtaocao/localpm.git`。推送后由 GitHub Actions 执行；在线构建结果应以对应工作流运行记录为准。
 
 ## 数据与安全边界
 

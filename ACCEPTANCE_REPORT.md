@@ -63,7 +63,7 @@ Golden 数据包含 basic、folder、variables、headers、params、json-body、
 ## 未完成 / 外部限制
 
 1. **Windows 原生构建与安装/启动/请求/保存/重启/卸载验收未执行**：没有 Windows 主机或 Runner。用户已说明后续提供环境；影响 Windows 交付。NSIS 配置及待执行验收步骤已提供。
-2. **Windows CI / macOS CI 成功记录未取得**：当前目录没有远程 Git 仓库和在线运行资源。两份 GitHub Actions 工作流已创建，但未执行，不能标记 CI 通过。
+2. **Windows CI / macOS CI 成功记录未取得**：本报告初次验收时尚未提供远程仓库。随后用户指定 `mingtaocao/localpm` 作为目标仓库；两份 GitHub Actions 工作流已创建，在线运行结果仍需单独验证，不能据此标记 CI 通过。
 3. **正式签名及公证未执行**：没有使用生产证书或开发者账号。macOS 已提供 ad-hoc 开发版；不影响当前开发版构建。
 4. **Postman 官方客户端重新导入的人工兼容检查未执行**：当前已完成内部 Golden 原始语义、导入请求执行与原生导出验证，但不宣称官方客户端实测通过。
 5. 系统代理读取已启用原生能力，但没有更改用户系统网络设置进行端到端系统代理测试；Manual Proxy / No Proxy / Proxy Auth 已通过本地测试。
