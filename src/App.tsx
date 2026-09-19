@@ -263,11 +263,46 @@ export default function App() {
       items: w.items.filter((i) => !remove.has(i.id)),
     });
     setTabs((ts) => ts.filter((t) => !requestIds.has(t.request.id)));
+    for (const id of requestIds) if (id) await api.draft(id, null);
+    if (requestIds.has(active))
+      setActive(
+        tabs.find((t) => !requestIds.has(t.request.id))?.request.id ?? "",
+      );
     setSelected("");
     setModal("");
   };
   const duplicate = async () => {
-    if (!w || !selectedItem) return;
+    if (!w) return;
+    if (!selectedItem && collection) {
+      const id = crypto.randomUUID();
+      const source = w.items.filter((i) => i.collectionId === collection.id);
+      const ids = new Map(source.map((i) => [i.id, crypto.randomUUID()]));
+      await persist({
+        ...w,
+        collections: [
+          ...w.collections,
+          {
+            ...structuredClone(collection),
+            id,
+            name: `${collection.name} copy`,
+          },
+        ],
+        items: [
+          ...w.items,
+          ...source.map((i) => ({
+            ...structuredClone(i),
+            id: ids.get(i.id)!,
+            collectionId: id,
+            parentId: i.parentId ? ids.get(i.parentId)! : null,
+            request: i.request
+              ? { ...structuredClone(i.request), id: crypto.randomUUID() }
+              : null,
+          })),
+        ],
+      });
+      return;
+    }
+    if (!selectedItem) return;
     const source = [selectedItem];
     for (let n = 0; n < source.length; n++)
       source.push(...w.items.filter((i) => i.parentId === source[n].id));
@@ -288,7 +323,7 @@ export default function App() {
     if (!w || source === target) return;
     const item = w.items.find((i) => i.id === source);
     const targetItem = w.items.find((i) => i.id === target);
-    if (!item || targetItem?.kind === "request") return;
+    if (!item) return;
     let parent = targetItem;
     while (parent) {
       if (parent.id === source) return;
@@ -296,9 +331,37 @@ export default function App() {
     }
     const cid = targetItem?.collectionId ?? target;
     const changed = new Set([source]);
-    for (let n = 0; n < w.items.length; n++)
-      for (const i of w.items)
-        if (i.parentId && changed.has(i.parentId)) changed.add(i.id);
+    const children = new Map<string, string[]>();
+    for (const i of w.items) {
+      if (i.parentId)
+        children.set(i.parentId, [...(children.get(i.parentId) ?? []), i.id]);
+    }
+    const todo = [source];
+    while (todo.length) {
+      for (const child of children.get(todo.pop()!) ?? []) {
+        if (!changed.has(child)) {
+          changed.add(child);
+          todo.push(child);
+        }
+      }
+    }
+    const parentId =
+      targetItem?.kind === "request"
+        ? targetItem.parentId
+        : (targetItem?.id ?? null);
+    const previous = w.items
+      .filter(
+        (i) =>
+          i.collectionId === cid &&
+          i.parentId === parentId &&
+          i.id !== source &&
+          i.order < (targetItem?.order ?? Infinity),
+      )
+      .sort((a, b) => b.order - a.order)[0];
+    const order =
+      targetItem?.kind === "request"
+        ? ((previous?.order ?? targetItem.order - 2) + targetItem.order) / 2
+        : w.items.length;
     void persist({
       ...w,
       items: w.items.map((i) =>
@@ -306,9 +369,7 @@ export default function App() {
           ? {
               ...i,
               collectionId: cid,
-              ...(i.id === source
-                ? { parentId: targetItem?.id ?? null, order: w.items.length }
-                : {}),
+              ...(i.id === source ? { parentId, order } : {}),
             }
           : i,
       ),
@@ -635,6 +696,9 @@ export default function App() {
                     }
                   >
                     Export Postman v2.1
+                  </button>
+                  <button onClick={() => void duplicate().catch(fail)}>
+                    Duplicate collection
                   </button>
                   <button className="danger" onClick={() => setModal("Delete")}>
                     Delete collection

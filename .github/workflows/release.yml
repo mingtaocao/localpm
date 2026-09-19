@@ -10,7 +10,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -19,19 +23,21 @@ jobs:
           node-version: 24
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
       - run: cargo test --manifest-path src-tauri/Cargo.toml
-      - run: npm run tauri build -- --bundles ${{ runner.os == 'Windows' && 'nsis' || 'dmg' }}
+      - run: npm run tauri build -- --target ${{ matrix.target }} --bundles ${{ runner.os == 'Windows' && 'nsis' || 'dmg' }}
         env:
           APPLE_SIGNING_IDENTITY: '-'
       - uses: actions/upload-artifact@v4
         with:
           name: LocalPostman-${{ runner.os }}-unsigned
           path: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
           if-no-files-found: error
 # This workflow uploads CI artifacts only; it never publishes a public Release.

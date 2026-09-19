@@ -48,6 +48,17 @@ fn secure_pairs(pairs: &mut [Pair]) -> Result<()> {
     Ok(())
 }
 fn secure_proxy(settings: &mut Value) -> Result<()> {
+    if let Some(address) = settings["proxy"]["url"].as_str() {
+        if let Ok(parsed) = url::Url::parse(address) {
+            if !parsed.username().is_empty() || parsed.password().is_some() {
+                return Err(AppError::new(
+                    "INVALID_PROXY",
+                    "Use the dedicated proxy username and password fields",
+                ));
+            }
+        }
+    }
+
     if let Some(p) = settings["proxy"]["password"]
         .as_str()
         .filter(|s| !s.is_empty())
@@ -60,6 +71,7 @@ fn secure_proxy(settings: &mut Value) -> Result<()> {
             .and_then(|e| e.set_password(p))
             .map_err(|_| AppError::new("SECRET_STORE_FAILED", "Could not save proxy password"))?;
         settings["proxy"]["secretRef"] = json!(r);
+        settings["proxy"]["credentialVersion"] = json!(uuid::Uuid::new_v4().to_string());
         settings["proxy"]
             .as_object_mut()
             .unwrap()

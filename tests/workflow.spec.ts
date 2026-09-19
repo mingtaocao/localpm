@@ -15,9 +15,16 @@ test("full UI workflow using real Rust HTTP and SQLite, including backend restar
     { resolve: (v: any) => void; reject: (e: any) => void }
   >();
   function start() {
-    child = spawn(resolve("src-tauri/target/debug/examples/test_bridge"), [], {
-      env: { ...process.env, LOCAL_POSTMAN_DATA_DIR: data },
-    });
+    child = spawn(
+      resolve(
+        "src-tauri/target/debug/examples/test_bridge" +
+          (process.platform === "win32" ? ".exe" : ""),
+      ),
+      [],
+      {
+        env: { ...process.env, LOCAL_POSTMAN_DATA_DIR: data },
+      },
+    );
     createInterface({ input: child.stdout }).on("line", (line) => {
       const r = JSON.parse(line);
       const p = pending.get(r.id)!;
@@ -97,7 +104,9 @@ test("full UI workflow using real Rust HTTP and SQLite, including backend restar
     await page.getByRole("button", { name: "History", exact: true }).click();
     await expect(page.locator(".history-item")).toHaveCount(2);
     await page.getByRole("button", { name: "⚙ Settings" }).click();
-    await page.getByRole("combobox", { name:"Proxy", exact: true }).selectOption("manual");
+    await page
+      .getByRole("combobox", { name: "Proxy", exact: true })
+      .selectOption("manual");
     await page
       .getByLabel("Proxy URL", { exact: true })
       .fill("http://127.0.0.1:47832");

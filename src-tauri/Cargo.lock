@@ -1951,6 +1951,7 @@ name = "local-postman"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "flate2",
  "keyring",
  "regex",
  "reqwest 0.12.28",
@@ -1963,6 +1964,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tempfile",
  "tokio",
+ "tokio-rustls",
  "tokio-util",
  "url",
  "uuid",

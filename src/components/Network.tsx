@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { api } from "../services/tauriApi";
 export function Network({
   value,
@@ -8,6 +9,7 @@ export function Network({
   onChange: (v: any) => void;
   global?: boolean;
 }) {
+  const [passwordDraft, setPasswordDraft] = useState<string | undefined>();
   const p = value.proxy ?? { mode: global ? "off" : "inherit" };
   const set = (key: string, v: any) => onChange({ ...value, [key]: v });
   const proxy = (key: string, v: any) => set("proxy", { ...p, [key]: v });
@@ -102,8 +104,14 @@ export function Network({
             <input
               type="password"
               placeholder={p.secretRef ? "Saved securely" : ""}
-              value={p.password ?? ""}
-              onChange={(e) => proxy("password", e.target.value)}
+              value={passwordDraft ?? p.password ?? ""}
+              onChange={(e) => setPasswordDraft(e.target.value)}
+              onBlur={() => {
+                if (passwordDraft !== undefined) {
+                  proxy("password", passwordDraft);
+                  setPasswordDraft(undefined);
+                }
+              }}
             />
           </label>
           <label>

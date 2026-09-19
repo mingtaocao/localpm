@@ -4,4 +4,6 @@ src-tauri/target/
 artifacts/*
 !artifacts/.gitkeep
 .DS_Store
-.idea
+.ideatest-results/
+playwright-report/
+*.tsbuildinfo

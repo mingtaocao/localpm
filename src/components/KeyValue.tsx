@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { pair, type Pair } from "../types";
 export function KeyValue({
   rows,
@@ -8,6 +9,7 @@ export function KeyValue({
   onChange: (r: Pair[]) => void;
   secrets?: boolean;
 }) {
+  const [secretDrafts, setSecretDrafts] = useState<Record<number, string>>({});
   function update(i: number, p: Partial<Pair>) {
     onChange(rows.map((r, n) => (n === i ? { ...r, ...p } : r)));
   }
@@ -36,8 +38,22 @@ export function KeyValue({
             aria-label={`Value ${i + 1}`}
             type={r.isSecret ? "password" : "text"}
             placeholder={r.secretRef ? "Saved in OS credential store" : "Value"}
-            value={r.value}
-            onChange={(e) => update(i, { value: e.target.value })}
+            value={r.isSecret ? (secretDrafts[i] ?? r.value) : r.value}
+            onChange={(e) =>
+              r.isSecret
+                ? setSecretDrafts((d) => ({ ...d, [i]: e.target.value }))
+                : update(i, { value: e.target.value })
+            }
+            onBlur={() => {
+              if (r.isSecret && secretDrafts[i] !== undefined) {
+                update(i, { value: secretDrafts[i] });
+                setSecretDrafts((d) => {
+                  const next = { ...d };
+                  delete next[i];
+                  return next;
+                });
+              }
+            }}
           />
           <input
             aria-label={`Description ${i + 1}`}

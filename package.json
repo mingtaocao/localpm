@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vitest run",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:e2e": "playwright test",
+    "format": "prettier --write src tests *.ts"
   },
   "dependencies": {
     "@codemirror/lang-json": "^6.0.0",
