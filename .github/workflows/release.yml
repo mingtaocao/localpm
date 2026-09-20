@@ -1,29 +1,37 @@
 name: Build and Release
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       version:
         description: 'Release version matching the project, e.g. v0.1.0'
         required: true
-        default: 'v0.1.0'
         type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.version }}
+  group: installers-${{ github.event_name }}-${{ inputs.version || github.ref }}
   cancel-in-progress: false
 
 jobs:
-  validate:
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.sha }}
           fetch-depth: 0
+      - name: Pin the source commit
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Validate version and ensure tag is unused
+        if: github.event_name == 'workflow_dispatch'
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
@@ -45,7 +53,7 @@ jobs:
           fi
 
   build:
-    needs: validate
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -63,6 +71,8 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -85,7 +95,8 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: build
+    if: github.event_name == 'workflow_dispatch'
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -98,7 +109,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_VERSION: ${{ inputs.version }}
-          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.source_sha }}
         run: |
           shopt -s nullglob
           windows=(release-files/windows/*.exe)
