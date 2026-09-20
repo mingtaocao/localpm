@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useMemo, useState } from "react";
 import type { Workspace, Item } from "../types";
 export function CollectionTree({
@@ -13,6 +14,7 @@ export function CollectionTree({
   onSelect: (id: string, item?: Item) => void;
   onMove: (source: string, target: string) => void;
 }) {
+  const { t: tr } = useTranslation();
   const [scroll, setScroll] = useState(0);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const rows = useMemo(() => {
@@ -100,7 +102,10 @@ export function CollectionTree({
             {(!row.item || row.item.kind === "folder") && (
               <button
                 className="collapse"
-                aria-label={`${collapsed.has(row.id) ? "Expand" : "Collapse"} ${row.name}`}
+                aria-label={tr(
+                  collapsed.has(row.id) ? "Collapse %{name}" : "Expand %{name}",
+                  { name: row.name },
+                )}
                 onClick={() =>
                   setCollapsed((prev) => {
                     const next = new Set(prev);
@@ -130,8 +135,8 @@ export function CollectionTree({
       {!rows.length && (
         <p className="empty-small">
           {search
-            ? "No matching requests."
-            : "Create a collection to organize your API requests."}
+            ? tr("No matching requests.")
+            : tr("Create a collection to organize your API requests.")}
         </p>
       )}
     </div>

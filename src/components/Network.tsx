@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { api } from "../services/tauriApi";
 export function Network({
@@ -9,6 +10,7 @@ export function Network({
   onChange: (v: any) => void;
   global?: boolean;
 }) {
+  const { t: tr } = useTranslation();
   const [passwordDraft, setPasswordDraft] = useState<string | undefined>();
   const p = value.proxy ?? { mode: global ? "off" : "inherit" };
   const set = (key: string, v: any) => onChange({ ...value, [key]: v });
@@ -16,10 +18,10 @@ export function Network({
   return (
     <div className="form">
       <label>
-        Timeout (ms)
+        {tr("Timeout (ms)")}
         <input
           type="number"
-          placeholder="Inherit · 30000"
+          placeholder={tr("Inherit · 30000")}
           value={value.timeout ?? ""}
           onChange={(e) =>
             set("timeout", e.target.value ? Number(e.target.value) : null)
@@ -27,7 +29,7 @@ export function Network({
         />
       </label>
       <label>
-        Certificate verification
+        {tr("Certificate verification")}
         <select
           value={
             value.verifyTls === undefined ? "inherit" : String(value.verifyTls)
@@ -39,18 +41,20 @@ export function Network({
             )
           }
         >
-          <option value="inherit">Inherit</option>
-          <option value="true">Verify certificates</option>
-          <option value="false">Disable verification</option>
+          <option value="inherit">{tr("Inherit")}</option>
+          <option value="true">{tr("Verify certificates")}</option>
+          <option value="false">{tr("Disable verification")}</option>
         </select>
       </label>
       {value.verifyTls === false && (
         <div className="warning">
-          ⚠ TLS verification disabled. Server identity will not be verified.
+          {tr(
+            "⚠ TLS verification disabled. Server identity will not be verified.",
+          )}
         </div>
       )}
       <label>
-        Redirects
+        {tr("Redirects")}
         <select
           value={
             value.followRedirect === undefined
@@ -64,28 +68,28 @@ export function Network({
             )
           }
         >
-          <option value="inherit">Inherit</option>
-          <option value="true">Follow · max 10</option>
-          <option value="false">Do not follow</option>
+          <option value="inherit">{tr("Inherit")}</option>
+          <option value="true">{tr("Follow · max 10")}</option>
+          <option value="false">{tr("Do not follow")}</option>
         </select>
       </label>
       <label>
-        Proxy
+        {tr("Proxy")}
         <select
-          aria-label="Proxy"
+          aria-label={tr("Proxy")}
           value={p.mode}
           onChange={(e) => proxy("mode", e.target.value)}
         >
-          {!global && <option value="inherit">Inherit</option>}
-          <option value="off">Off · direct connection</option>
-          <option value="system">System</option>
-          <option value="manual">Manual HTTP / HTTPS</option>
+          {!global && <option value="inherit">{tr("Inherit")}</option>}
+          <option value="off">{tr("Off · direct connection")}</option>
+          <option value="system">{tr("System")}</option>
+          <option value="manual">{tr("Manual HTTP / HTTPS")}</option>
         </select>
       </label>
       {p.mode === "manual" && (
         <>
           <label>
-            Proxy URL
+            {tr("Proxy URL")}
             <input
               placeholder="http://127.0.0.1:7890"
               value={p.url ?? ""}
@@ -93,17 +97,17 @@ export function Network({
             />
           </label>
           <label>
-            Username
+            {tr("Username")}
             <input
               value={p.username ?? ""}
               onChange={(e) => proxy("username", e.target.value)}
             />
           </label>
           <label>
-            Password · OS credential store
+            {tr("Password · OS credential store")}
             <input
               type="password"
-              placeholder={p.secretRef ? "Saved securely" : ""}
+              placeholder={p.secretRef ? tr("Saved securely") : ""}
               value={passwordDraft ?? p.password ?? ""}
               onChange={(e) => setPasswordDraft(e.target.value)}
               onBlur={() => {
@@ -115,7 +119,7 @@ export function Network({
             />
           </label>
           <label>
-            No Proxy
+            {tr("No Proxy")}
             <textarea
               placeholder="localhost, 127.0.0.1, *.company.com"
               value={p.noProxy ?? ""}
@@ -125,7 +129,7 @@ export function Network({
         </>
       )}
       <label>
-        Custom CA PEM
+        {tr("Custom CA PEM")}
         <input
           value={value.caFile ?? ""}
           onChange={(e) => set("caFile", e.target.value)}
@@ -136,19 +140,19 @@ export function Network({
             if (path) set("caFile", path);
           }}
         >
-          Choose CA file
+          {tr("Choose CA file")}
         </button>
       </label>
       {global && (
         <label>
-          History retention
+          {tr("History retention")}
           <select
             value={value.historyLimit ?? 1000}
             onChange={(e) => set("historyLimit", Number(e.target.value))}
           >
             {[100, 500, 1000, 5000, 0].map((n) => (
               <option value={n} key={n}>
-                {n || "Unlimited"}
+                {n || tr("Unlimited")}
               </option>
             ))}
           </select>

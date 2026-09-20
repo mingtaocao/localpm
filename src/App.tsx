@@ -1,5 +1,9 @@
+import { editorPhrases } from "./i18n/editor";
+import { usePreferences } from "./stores/preferences";
+import { formatError } from "./i18n/errors";
+import { useTranslation } from "react-i18next";
 import { useEffect, useRef, useState } from "react";
-import CodeMirror from "@uiw/react-codemirror";
+import CodeMirror, { EditorState } from "@uiw/react-codemirror";
 import { json } from "@codemirror/lang-json";
 import { api } from "./services/tauriApi";
 import { useWorkspace } from "./stores/workspace";
@@ -20,9 +24,12 @@ type Tab = {
   dirty: boolean;
   response?: ResponseResult;
   execution?: string;
-  error?: string;
+  error?: unknown;
 };
 export default function App() {
+  const { t: tr } = useTranslation();
+  const phrases = EditorState.phrases.of(editorPhrases());
+  const { theme, language, resolvedTheme } = usePreferences();
   const {
     workspace: w,
     set: setWorkspace,
@@ -36,7 +43,7 @@ export default function App() {
   const [editor, setEditor] = useState("Params");
   const [responseTab, setResponseTab] = useState("Pretty");
   const [history, setHistory] = useState<any[]>([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
   const [search, setSearch] = useState("");
   const [headerSearch, setHeaderSearch] = useState("");
@@ -54,8 +61,7 @@ export default function App() {
     (c) => c.id === (selectedItem?.collectionId ?? selected),
   );
   const environment = w?.environments.find((e) => e.id === w.activeEnvironment);
-  const fail = (e: any) =>
-    setError(`${e?.code ?? "ERROR"}: ${e?.message ?? e}`);
+  const fail = (e: any) => setError(e);
   useEffect(() => {
     api
       .bootstrap()
@@ -153,7 +159,7 @@ export default function App() {
         ].slice(0, 100),
       );
     } catch (e: any) {
-      updateTab(r.id, { error: `${e.code ?? "ERROR"}: ${e.message ?? e}` });
+      updateTab(r.id, { error: e });
     } finally {
       updateTab(r.id, { execution: undefined });
       api.history().then(setHistory).catch(fail);
@@ -202,7 +208,7 @@ export default function App() {
         ...w.collections,
         {
           id,
-          name: "New collection",
+          name: tr("New collection"),
           auth: { type: "noauth" },
           variables: [],
           metadata: null,
@@ -227,7 +233,7 @@ export default function App() {
           collectionId: collection.id,
           parentId: selectedItem?.kind === "folder" ? selectedItem.id : null,
           kind: "folder",
-          name: "New folder",
+          name: tr("New folder"),
           order: w.items.length,
           auth: { type: "inherit" },
           request: null,
@@ -284,7 +290,7 @@ export default function App() {
           {
             ...structuredClone(collection),
             id,
-            name: `${collection.name} copy`,
+            name: tr("%{name} copy", { name: collection.name }),
           },
         ],
         items: [
@@ -311,7 +317,7 @@ export default function App() {
       ...structuredClone(i),
       id: ids.get(i.id)!,
       parentId: n === 0 ? i.parentId : ids.get(i.parentId!)!,
-      name: n === 0 ? `${i.name} copy` : i.name,
+      name: n === 0 ? tr("%{name} copy", { name: i.name }) : i.name,
       order: i.order + 0.5,
       request: i.request
         ? { ...structuredClone(i.request), id: crypto.randomUUID() }
@@ -378,9 +384,11 @@ export default function App() {
   if (!w)
     return (
       <div className="loading">
-        <div className="brand-icon">LP</div>
-        <h2>Local Postman</h2>
-        <p>{error || "Opening your local workspace…"}</p>
+        <div className="brand-icon">{tr("LP")}</div>
+        <h2>{tr("Local Postman")}</h2>
+        <p>
+          {error ? formatError(error) : tr("Opening your local workspace…")}
+        </p>
       </div>
     );
   const setVariables = (scope: string, rows: Pair[]) =>
@@ -429,7 +437,7 @@ export default function App() {
         ...w.environments,
         {
           id,
-          name: "New environment",
+          name: tr("New environment"),
           variables: [],
           settings: {},
           metadata: null,
@@ -450,13 +458,15 @@ export default function App() {
     <div className="app">
       <header>
         <div className="brand">
-          <span className="brand-icon">LP</span>Local Postman{" "}
-          <small>LOCAL WORKSPACE</small>
+          <span className="brand-icon">{tr("LP")}</span>
+          {tr("Local Postman")} <small>{tr("LOCAL WORKSPACE")}</small>
         </div>
         <div className="header-actions">
-          <span className="offline">● All data stays on this device</span>
+          <span className="offline">
+            {tr("● All data stays on this device")}
+          </span>
           <select
-            aria-label="Active environment"
+            aria-label={tr("Active environment")}
             value={w.activeEnvironment ?? ""}
             onChange={(e) =>
               void persist({
@@ -465,25 +475,28 @@ export default function App() {
               }).catch(fail)
             }
           >
-            <option value="">No environment</option>
+            <option value="">{tr("No environment")}</option>
             {w.environments.map((e) => (
               <option key={e.id} value={e.id}>
                 {e.name}
               </option>
             ))}
           </select>
-          <button onClick={() => setModal("Settings")}>⚙ Settings</button>
+          <button onClick={() => setModal("Settings")}>
+            {tr("⚙ Settings")}
+          </button>
         </div>
       </header>
       <div className="shell">
         <aside>
           <div className="workspace-title">
-            My Workspace <span>⌄</span>
+            {tr("My Workspace")}
+            <span>⌄</span>
           </div>
           <input
             className="search"
             ref={searchRef}
-            placeholder="Search name or URL  ⌘K"
+            placeholder={tr("Search name or URL  ⌘K")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -494,16 +507,18 @@ export default function App() {
                 className={section === s ? "active" : ""}
                 onClick={() => setSection(s)}
               >
-                {s}
+                {tr(s)}
               </button>
             ))}
           </nav>
           {section === "Collections" && (
             <>
               <div className="sidebar-tools">
-                <button onClick={createCollection}>＋ Collection</button>
-                <button onClick={createFolder}>＋ Folder</button>
-                <button onClick={newTab}>＋ Request</button>
+                <button onClick={createCollection}>
+                  {tr("＋ Collection")}
+                </button>
+                <button onClick={createFolder}>{tr("＋ Folder")}</button>
+                <button onClick={newTab}>{tr("＋ Request")}</button>
               </div>
               <CollectionTree
                 workspace={w}
@@ -518,10 +533,10 @@ export default function App() {
               />
               <div className="sidebar-bottom">
                 <button onClick={() => void importFile()}>
-                  ↓ Import Postman
+                  {tr("↓ Import Postman")}
                 </button>
                 <button onClick={() => setModal("Global")}>
-                  Global variables
+                  {tr("Global variables")}
                 </button>
               </div>
             </>
@@ -529,7 +544,7 @@ export default function App() {
           {section === "Environments" && (
             <>
               <button className="subtle" onClick={createEnvironment}>
-                ＋ Environment
+                {tr("＋ Environment")}
               </button>
               {w.environments.map((e) => (
                 <button
@@ -544,7 +559,7 @@ export default function App() {
                 </button>
               ))}
               <button className="subtle" onClick={() => setModal("Global")}>
-                Global variables
+                {tr("Global variables")}
               </button>
             </>
           )}
@@ -558,7 +573,7 @@ export default function App() {
                     .catch(fail)
                 }
               >
-                Clear history
+                {tr("Clear history")}
               </button>
               {history.map((h) => (
                 <button
@@ -568,7 +583,7 @@ export default function App() {
                     openRequest({
                       ...h.snapshot,
                       id: crypto.randomUUID(),
-                      name: `History · ${h.snapshot.name}`,
+                      name: tr("History · %{name}", { name: h.snapshot.name }),
                     })
                   }
                 >
@@ -599,27 +614,29 @@ export default function App() {
                   {t.dirty ? " •" : ""}
                 </button>
                 <button
-                  title="Close tab (draft retained)"
+                  title={tr("Close tab (draft retained)")}
                   onClick={() => void closeTab(t.request.id)}
                 >
                   ×
                 </button>
               </div>
             ))}
-            <button onClick={newTab}>＋</button>
+            <button aria-label={tr("New request")} onClick={newTab}>
+              ＋
+            </button>
           </div>
           {modal ? (
             <div className="panel">
               <div className="panel-heading">
-                <h2>{modal === "Global" ? "Global variables" : modal}</h2>
-                <button onClick={() => setModal("")}>Close ×</button>
+                <h2>{tr(modal === "Global" ? "Global variables" : modal)}</h2>
+                <button onClick={() => setModal("")}>{tr("Close ×")}</button>
               </div>
               {modal === "Cookies" && (
                 <>
                   <p className="muted">
-                    Cookie domain, path, Secure, HttpOnly, expiry and SameSite
-                    are honored by the HTTP engine. Session cookies expire when
-                    the app exits.
+                    {tr(
+                      "Cookie domain, path, Secure, HttpOnly, expiry and SameSite are honored by the HTTP engine. Session cookies expire when the app exits.",
+                    )}
                   </p>
                   <button
                     onClick={() =>
@@ -629,13 +646,53 @@ export default function App() {
                         .catch(fail)
                     }
                   >
-                    Clear cookie jar
+                    {tr("Clear cookie jar")}
                   </button>
                   <pre>{JSON.stringify(cookies, null, 2)}</pre>
                 </>
               )}
               {modal === "Settings" && (
                 <>
+                  <h3>{tr("Appearance")}</h3>
+                  <div className="form appearance">
+                    <label>
+                      {tr("Theme")}
+                      <select
+                        aria-label={tr("Theme")}
+                        value={theme}
+                        onChange={(e) =>
+                          void persist({
+                            ...w,
+                            settings: { ...w.settings, theme: e.target.value },
+                          }).catch(fail)
+                        }
+                      >
+                        <option value="system">{tr("System")}</option>
+                        <option value="light">{tr("Light")}</option>
+                        <option value="dark">{tr("Dark")}</option>
+                      </select>
+                    </label>
+                    <label>
+                      {tr("Language")}
+                      <select
+                        aria-label={tr("Language")}
+                        value={language}
+                        onChange={(e) =>
+                          void persist({
+                            ...w,
+                            settings: {
+                              ...w.settings,
+                              language: e.target.value,
+                            },
+                          }).catch(fail)
+                        }
+                      >
+                        <option value="system">{tr("Follow system")}</option>
+                        <option value="en-US">{tr("English")}</option>
+                        <option value="zh-CN">{tr("简体中文")}</option>
+                      </select>
+                    </label>
+                  </div>
                   <button
                     onClick={() =>
                       void api
@@ -647,7 +704,7 @@ export default function App() {
                         .catch(fail)
                     }
                   >
-                    Manage cookies
+                    {tr("Manage cookies")}
                   </button>
                   <Network
                     global
@@ -657,8 +714,9 @@ export default function App() {
                     }
                   />
                   <p className="muted">
-                    Local Postman 0.1.0 · Local SQLite storage · No login ·
-                    Scripts preserved, never executed.
+                    {tr(
+                      "Local Postman 0.1.0 · Local SQLite storage · No login · Scripts preserved, never executed.",
+                    )}
                   </p>
                 </>
               )}
@@ -672,7 +730,7 @@ export default function App() {
               {modal === "Collection" && collection && (
                 <>
                   <label className="form">
-                    Name
+                    {tr("Name")}
                     <input
                       value={collection.name}
                       onChange={(e) =>
@@ -684,7 +742,7 @@ export default function App() {
                     value={collection.auth}
                     onChange={(auth) => patchCollection({ auth })}
                   />
-                  <h3>Collection variables</h3>
+                  <h3>{tr("Collection variables")}</h3>
                   <KeyValue
                     secrets
                     rows={collection.variables}
@@ -695,20 +753,20 @@ export default function App() {
                       void api.export(collection.id, "collection").catch(fail)
                     }
                   >
-                    Export Postman v2.1
+                    {tr("Export Postman v2.1")}
                   </button>
                   <button onClick={() => void duplicate().catch(fail)}>
-                    Duplicate collection
+                    {tr("Duplicate collection")}
                   </button>
                   <button className="danger" onClick={() => setModal("Delete")}>
-                    Delete collection
+                    {tr("Delete collection")}
                   </button>
                 </>
               )}
               {modal === "Folder" && selectedItem && (
                 <>
                   <label className="form">
-                    Folder name
+                    {tr("Folder name")}
                     <input
                       value={selectedItem.name}
                       onChange={(e) => patchFolder({ name: e.target.value })}
@@ -718,12 +776,14 @@ export default function App() {
                     value={selectedItem.auth}
                     onChange={(auth) => patchFolder({ auth })}
                   />
-                  <button onClick={newTab}>New request in folder</button>
+                  <button onClick={newTab}>
+                    {tr("New request in folder")}
+                  </button>
                   <button onClick={() => void duplicate().catch(fail)}>
-                    Duplicate folder
+                    {tr("Duplicate folder")}
                   </button>
                   <button className="danger" onClick={() => setModal("Delete")}>
-                    Delete folder
+                    {tr("Delete folder")}
                   </button>
                 </>
               )}
@@ -731,7 +791,7 @@ export default function App() {
                 (environment ? (
                   <>
                     <label className="form">
-                      Name
+                      {tr("Name")}
                       <input
                         value={environment.name}
                         onChange={(e) =>
@@ -755,37 +815,38 @@ export default function App() {
                           .catch(fail)
                       }
                     >
-                      Export environment
+                      {tr("Export environment")}
                     </button>
                     <button
                       className="danger"
                       onClick={() => setModal("Delete environment")}
                     >
-                      Delete environment
+                      {tr("Delete environment")}
                     </button>
                   </>
                 ) : (
                   <button onClick={createEnvironment}>
-                    Create environment
+                    {tr("Create environment")}
                   </button>
                 ))}
               {modal === "Delete" && (
                 <>
                   <p>
-                    Delete “{selectedItem?.name ?? collection?.name}” and its
-                    contents?
+                    {tr("Delete “%{name}” and its contents?", {
+                      name: selectedItem?.name ?? collection?.name,
+                    })}
                   </p>
                   <button
                     className="danger"
                     onClick={() => void deleteSelected().catch(fail)}
                   >
-                    Delete permanently
+                    {tr("Delete permanently")}
                   </button>
                 </>
               )}
               {modal === "Delete environment" && environment && (
                 <>
-                  <p>Delete “{environment.name}”?</p>
+                  <p>{tr("Delete “%{name}”?", { name: environment.name })}</p>
                   <button
                     className="danger"
                     onClick={() => {
@@ -799,7 +860,7 @@ export default function App() {
                       setModal("");
                     }}
                   >
-                    Delete
+                    {tr("Delete")}
                   </button>
                 </>
               )}
@@ -812,19 +873,21 @@ export default function App() {
               <section className="request-editor" style={{ height: topHeight }}>
                 <div className="request-title">
                   <input
-                    aria-label="Request name"
+                    aria-label={tr("Request name")}
                     value={r.name}
                     onChange={(e) => edit({ name: e.target.value })}
                   />
                   <button onClick={() => void save().catch(fail)}>
-                    Save ⌘S
+                    {tr("Save ⌘S")}
                   </button>
                   {selectedItem?.request?.id === r.id && (
                     <>
                       <button onClick={() => void duplicate().catch(fail)}>
-                        Duplicate
+                        {tr("Duplicate")}
                       </button>
-                      <button onClick={() => setModal("Delete")}>Delete</button>
+                      <button onClick={() => setModal("Delete")}>
+                        {tr("Delete")}
+                      </button>
                     </>
                   )}
                   <button
@@ -838,14 +901,14 @@ export default function App() {
                         .catch(fail)
                     }
                   >
-                    Preview request
+                    {tr("Preview request")}
                   </button>
                 </div>
                 <div className="url-bar">
                   <input
                     list="methods"
                     className="method-select"
-                    aria-label="HTTP method"
+                    aria-label={tr("HTTP method")}
                     value={r.method}
                     onChange={(e) =>
                       edit({ method: e.target.value.toUpperCase() })
@@ -861,7 +924,9 @@ export default function App() {
                       "HEAD",
                       "OPTIONS",
                     ].map((m) => (
-                      <option key={m}>{m}</option>
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
                     ))}
                   </datalist>
                   <input
@@ -880,11 +945,11 @@ export default function App() {
                       .filter((p) => p.enabled)
                       .map(
                         (p) =>
-                          `{{${p.key}}} · ${p.scope} = ${p.isSecret ? "••••••••" : p.value}`,
+                          `{{${p.key}}} · ${tr(p.scope)} = ${p.isSecret ? "••••••••" : p.value}`,
                       )
                       .join("\n")}
-                    aria-label="Request URL"
-                    placeholder="Enter URL or use {{host}}/api"
+                    aria-label={tr("Request URL")}
+                    placeholder={tr("Enter URL or use {{host}}/api")}
                     value={r.url}
                     onChange={(e) =>
                       edit({
@@ -901,7 +966,7 @@ export default function App() {
                         : void send()
                     }
                   >
-                    {tab?.execution ? "Cancel" : "Send"}{" "}
+                    {tr(tab?.execution ? "Cancel" : "Send")}{" "}
                     {!tab?.execution && "↗"}
                   </button>
                 </div>
@@ -910,7 +975,7 @@ export default function App() {
                     (environment?.settings.verifyTls ??
                       w.settings.verifyTls) === false)) && (
                   <div className="warning">
-                    ⚠ TLS verification is disabled for this request
+                    {tr("⚠ TLS verification is disabled for this request")}
                   </div>
                 )}
                 <div className="editor-tabs">
@@ -923,11 +988,11 @@ export default function App() {
                     "Scripts",
                   ].map((t) => (
                     <button
-                      key={t}
+                      key={tr(t)}
                       className={editor === t ? "active" : ""}
                       onClick={() => setEditor(t)}
                     >
-                      {t}
+                      {tr(t)}
                       {t === "Headers" && r.headers.length > 0
                         ? ` (${r.headers.length})`
                         : ""}
@@ -950,9 +1015,9 @@ export default function App() {
                         onChange={(headers) => edit({ headers })}
                       />
                       <p className="muted">
-                        System headers: Host, Content-Length and body
-                        Content-Type are generated on send. User headers take
-                        priority.
+                        {tr(
+                          "System headers: Host, Content-Length and body Content-Type are generated on send. User headers take priority.",
+                        )}
                       </p>
                     </>
                   )}
@@ -968,8 +1033,9 @@ export default function App() {
                   {editor === "Scripts" && (
                     <>
                       <p className="warning">
-                        Scripts are preserved for export. V1 does not execute
-                        scripts.
+                        {tr(
+                          "Scripts are preserved for export. V1 does not execute scripts.",
+                        )}
                       </p>
                       <pre>
                         {JSON.stringify(
@@ -986,7 +1052,7 @@ export default function App() {
                     <>
                       <div className="body-options">
                         <select
-                          aria-label="Body mode"
+                          aria-label={tr("Body mode")}
                           value={r.body.mode}
                           onChange={(e) =>
                             edit({ body: { ...r.body, mode: e.target.value } })
@@ -999,12 +1065,14 @@ export default function App() {
                             "formdata",
                             "file",
                           ].map((m) => (
-                            <option key={m}>{m}</option>
+                            <option key={m} value={m}>
+                              {tr(m)}
+                            </option>
                           ))}
                         </select>
                         {r.body.mode === "raw" && (
                           <select
-                            aria-label="Raw language"
+                            aria-label={tr("Raw language")}
                             value={r.body.options?.raw?.language ?? "text"}
                             onChange={(e) =>
                               edit({
@@ -1020,23 +1088,29 @@ export default function App() {
                           >
                             {["text", "json", "xml", "html", "javascript"].map(
                               (l) => (
-                                <option key={l}>{l}</option>
+                                <option key={l} value={l}>
+                                  {l === "text" ? tr("text") : l}
+                                </option>
                               ),
                             )}
                           </select>
                         )}
                       </div>
                       {r.body.mode === "none" && (
-                        <p className="muted">This request has no body.</p>
+                        <p className="muted">
+                          {tr("This request has no body.")}
+                        </p>
                       )}
                       {r.body.mode === "raw" && (
                         <CodeMirror
+                          theme={resolvedTheme}
                           value={r.body.raw ?? ""}
-                          extensions={
-                            r.body.options?.raw?.language === "json"
+                          extensions={[
+                            phrases,
+                            ...(r.body.options?.raw?.language === "json"
                               ? [json()]
-                              : []
-                          }
+                              : []),
+                          ]}
                           onChange={(raw) => edit({ body: { ...r.body, raw } })}
                         />
                       )}
@@ -1088,7 +1162,7 @@ export default function App() {
                                 }
                               />
                               <input
-                                placeholder="Key"
+                                placeholder={tr("Key")}
                                 value={p.key}
                                 onChange={(e) =>
                                   edit({
@@ -1120,8 +1194,8 @@ export default function App() {
                                   })
                                 }
                               >
-                                <option>text</option>
-                                <option>file</option>
+                                <option value="text">{tr("text")}</option>
+                                <option value="file">{tr("file")}</option>
                               </select>
                               {p.type === "file" ? (
                                 <button
@@ -1139,11 +1213,11 @@ export default function App() {
                                       });
                                   }}
                                 >
-                                  {p.src || "Choose file"}
+                                  {p.src || tr("Choose file")}
                                 </button>
                               ) : (
                                 <input
-                                  placeholder="Value"
+                                  placeholder={tr("Value")}
                                   value={p.value}
                                   onChange={(e) =>
                                     edit({
@@ -1189,7 +1263,7 @@ export default function App() {
                               })
                             }
                           >
-                            ＋ Add field
+                            {tr("＋ Add field")}
                           </button>
                         </>
                       )}
@@ -1201,7 +1275,7 @@ export default function App() {
                               edit({ body: { mode: "file", file: { src } } });
                           }}
                         >
-                          {r.body.file?.src ?? "Choose binary file"}
+                          {r.body.file?.src ?? tr("Choose binary file")}
                         </button>
                       )}
                     </>
@@ -1228,27 +1302,31 @@ export default function App() {
               />
               <section className="response">
                 <div className="response-heading">
-                  <h3>Response</h3>
+                  <h3>{tr("Response")}</h3>
                   {tab?.response && (
                     <div className="metrics">
                       <b>
                         {tab.response.status} {tab.response.statusText}
                       </b>
-                      <span>{tab.response.duration} ms</span>
-                      <span>{(tab.response.size / 1024).toFixed(2)} KB</span>
+                      <span>
+                        {tab.response.duration} {tr("ms")}
+                      </span>
+                      <span>
+                        {(tab.response.size / 1024).toFixed(2)} {tr("KB")}
+                      </span>
                       <button
                         onClick={() =>
                           void api.saveResponse(tab.response!.file).catch(fail)
                         }
                       >
-                        Save as…
+                        {tr("Save as…")}
                       </button>
                     </div>
                   )}
                 </div>
-                {tab?.error && (
+                {!!tab?.error && (
                   <div role="alert" className="error">
-                    {tab.error}
+                    {formatError(tab.error)}
                   </div>
                 )}
                 {tab?.response ? (
@@ -1257,11 +1335,11 @@ export default function App() {
                       {["Pretty", "Raw", "Preview", "Headers", "Cookies"].map(
                         (t) => (
                           <button
-                            key={t}
+                            key={tr(t)}
                             className={responseTab === t ? "active" : ""}
                             onClick={() => setResponseTab(t)}
                           >
-                            {t}
+                            {tr(t)}
                           </button>
                         ),
                       )}
@@ -1269,7 +1347,7 @@ export default function App() {
                     {["Headers", "Cookies"].includes(responseTab) ? (
                       <div className="response-data">
                         <input
-                          placeholder="Filter headers"
+                          placeholder={tr("Filter headers")}
                           value={headerSearch}
                           onChange={(e) => setHeaderSearch(e.target.value)}
                         />
@@ -1284,7 +1362,7 @@ export default function App() {
                               .catch(fail)
                           }
                         >
-                          Copy all
+                          {tr("Copy all")}
                         </button>
                         {tab.response.headers
                           .filter(
@@ -1306,7 +1384,7 @@ export default function App() {
                                     .catch(fail)
                                 }
                               >
-                                Copy
+                                {tr("Copy")}
                               </button>
                             </div>
                           ))}
@@ -1314,21 +1392,25 @@ export default function App() {
                     ) : tab.response.truncated || tab.response.binary ? (
                       <p className="empty-small">
                         {tab.response.truncated
-                          ? "Response exceeds the 20 MB preview limit."
-                          : "Binary response."}{" "}
-                        Use Save as to save the complete response.
+                          ? tr("Response exceeds the 20 MB preview limit.")
+                          : tr("Binary response.")}{" "}
+                        {tr("Use Save as to save the complete response.")}
                       </p>
                     ) : responseTab === "Preview" &&
                       tab.response.contentType.includes("html") ? (
                       <iframe
-                        title="Isolated response preview"
+                        title={tr("Isolated response preview")}
                         sandbox=""
                         srcDoc={responseBody}
                       />
                     ) : (
                       <CodeMirror
+                        theme={resolvedTheme}
                         value={responseBody}
-                        extensions={responseTab === "Pretty" ? [json()] : []}
+                        extensions={[
+                          phrases,
+                          ...(responseTab === "Pretty" ? [json()] : []),
+                        ]}
                         editable={false}
                       />
                     )}
@@ -1336,47 +1418,57 @@ export default function App() {
                 ) : (
                   <div className="response-empty">
                     <span>↗</span>
-                    <h3>Your response will appear here</h3>
-                    <p>Send a request to inspect status, headers and body.</p>
-                    <small>⌘ Enter to send</small>
+                    <h3>{tr("Your response will appear here")}</h3>
+                    <p>
+                      {tr(
+                        "Send a request to inspect status, headers and body.",
+                      )}
+                    </p>
+                    <small>{tr("⌘ Enter to send")}</small>
                   </div>
                 )}
               </section>
             </>
           ) : (
             <div className="welcome">
-              <div className="brand-icon">LP</div>
-              <h1>Your APIs. Your machine.</h1>
+              <div className="brand-icon">{tr("LP")}</div>
+              <h1>{tr("Your APIs. Your machine.")}</h1>
               <p>
-                A local workspace for requests, environments and collections.
+                {tr(
+                  "A local workspace for requests, environments and collections.",
+                )}
               </p>
               <button className="primary" onClick={newTab}>
-                ＋ New request
+                {tr("＋ New request")}
               </button>
               <button onClick={() => void importFile()}>
-                Import Postman collection
+                {tr("Import Postman collection")}
               </button>
               <div className="welcome-grid">
                 <div>
-                  <b>01 / Organize</b>
-                  <p>Collections and folders keep your work together.</p>
+                  <b>{tr("01 / Organize")}</b>
+                  <p>
+                    {tr("Collections and folders keep your work together.")}
+                  </p>
                 </div>
                 <div>
-                  <b>02 / Configure</b>
-                  <p>Switch environments and resolve variables locally.</p>
+                  <b>{tr("02 / Configure")}</b>
+                  <p>
+                    {tr("Switch environments and resolve variables locally.")}
+                  </p>
                 </div>
                 <div>
-                  <b>03 / Inspect</b>
-                  <p>Send through Rust with full proxy control.</p>
+                  <b>{tr("03 / Inspect")}</b>
+                  <p>{tr("Send through Rust with full proxy control.")}</p>
                 </div>
               </div>
             </div>
           )}
         </main>
       </div>
-      {(error || storeError) && (
+      {!!(error || storeError) && (
         <div className="toast error" role="alert">
-          {error || storeError}
+          {formatError(error || storeError)}
           <button
             onClick={() => {
               setError("");
@@ -1389,23 +1481,24 @@ export default function App() {
       )}
       {notice && (
         <div className="toast" onClick={() => setNotice("")}>
-          {notice} ×
+          {tr(notice)} ×
         </div>
       )}
       <footer>
         <button onClick={() => setConsoleOpen(!consoleOpen)}>
-          ⌘ Console {consoleOpen ? "⌄" : "⌃"}
+          {tr("⌘ Console")}
+          {consoleOpen ? "⌄" : "⌃"}
         </button>
-        <span>SQLite · Local only</span>
-        <span>
-          {tabs.length} open request{tabs.length !== 1 ? "s" : ""}
-        </span>
+        <span>{tr("SQLite · Local only")}</span>
+        <span>{tr("openRequests", { count: tabs.length })}</span>
       </footer>
       {consoleOpen && (
         <div className="console">
           {logs.length
             ? logs.map((s, i) => <div key={i}>{s}</div>)
-            : "No requests sent this session. Credentials are never logged."}
+            : tr(
+                "No requests sent this session. Credentials are never logged.",
+              )}
         </div>
       )}
     </div>

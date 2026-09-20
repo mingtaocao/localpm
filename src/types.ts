@@ -1,3 +1,4 @@
+import i18n from "./i18n";
 export type Pair = {
   key: string;
   value: string;
@@ -74,7 +75,7 @@ export const pair = (): Pair => ({
 });
 export const newRequest = (): RequestSpec => ({
   id: crypto.randomUUID(),
-  name: "Untitled request",
+  name: i18n.t("Untitled request"),
   method: "GET",
   url: "",
   params: [],

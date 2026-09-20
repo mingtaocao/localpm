@@ -4,7 +4,7 @@ import { api } from "../services/tauriApi";
 let queue = Promise.resolve();
 export const useWorkspace = create<{
   workspace: Workspace | null;
-  error: string;
+  error: unknown;
   set: (w: Workspace) => void;
   persist: (w: Workspace) => Promise<void>;
 }>((set) => ({
@@ -19,7 +19,7 @@ export const useWorkspace = create<{
         current.workspace === workspace ? { workspace: saved } : {},
       );
     });
-    queue = work.catch((e) => set({ error: String(e?.message ?? e) }));
+    queue = work.catch((e) => set({ error: e }));
     await work;
   },
 }));

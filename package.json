@@ -18,8 +18,10 @@
     "@tauri-apps/api": "^2.8.0",
     "@tauri-apps/plugin-dialog": "^2.4.0",
     "@uiw/react-codemirror": "^4.25.0",
+    "i18next": "^26.4.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-i18next": "^17.0.14",
     "zustand": "^5.0.0"
   },
   "devDependencies": {

@@ -18,6 +18,14 @@
 - Postman Collection v2.1 / Environment 导入导出；保留未知字段、禁用行和 Scripts；V1 不执行 Scripts。
 - 响应 Pretty/Raw/沙箱 HTML Preview、Headers/Cookies、复制/筛选和 Save as；超过 20MB 的响应只保存文件，不向 UI 传递全文。
 
+## 主题与语言（V1.1 增量）
+
+Settings / 设置中的“外观”区域支持浅色、深色、跟随系统，以及简体中文、English、跟随系统语言。主题默认跟随系统；系统语言为中文时使用简体中文，其余语言回退 English。选择自动保存到现有 SQLite 工作区 settings，重启后恢复，旧数据库无需迁移。
+
+CSS 使用语义颜色变量和 `data-theme`；CodeMirror 的请求体、响应、搜索与折叠提示随主题及语言切换。i18next 资源集中在 `src/i18n/en-US.json` 和 `zh-CN.json`。变量、请求名称、HTTP Method、Header、JSON 及服务器返回内容保持原样；HTML 响应预览保留服务器的原始样式。系统文件对话框的标题由应用翻译，系统按钮由操作系统决定语言。
+
+新增自动验证覆盖三种主题、系统主题变化、中英文及系统语言切换、旧设置兼容、真实 SQLite 后端重启，以及切换前后请求数据不变。验收记录见 [THEME_I18N_ACCEPTANCE.md](THEME_I18N_ACCEPTANCE.md)。
+
 ## 开发
 
 依赖 Node.js 24、稳定版 Rust。macOS 需要 Xcode Command Line Tools；Windows 需要 MSVC C++ build tools 和 WebView2 Runtime。

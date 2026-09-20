@@ -1,3 +1,4 @@
+import i18n from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { Workspace, RequestSpec, ResponseResult } from "../types";
@@ -21,20 +22,25 @@ export const api = {
   clearHistory: () => invoke("clear_history"),
   import: async () => {
     const path = await open({
-      filters: [{ name: "Postman JSON", extensions: ["json"] }],
+      title: i18n.t("Import Postman data"),
+      filters: [{ name: i18n.t("Postman JSON"), extensions: ["json"] }],
     });
     return path ? invoke<Workspace>("import_file", { path }) : null;
   },
   export: async (id: string, kind: string) => {
     const path = await save({
+      title: i18n.t("Export Postman data"),
       defaultPath: `${kind}.postman.json`,
-      filters: [{ name: "JSON", extensions: ["json"] }],
+      filters: [{ name: i18n.t("JSON"), extensions: ["json"] }],
     });
     if (path) await invoke("export_file", { id, kind, path });
   },
-  file: () => open({ multiple: false }),
+  file: () => open({ multiple: false, title: i18n.t("Select file") }),
   saveResponse: async (source: string) => {
-    const path = await save({ defaultPath: "response.bin" });
+    const path = await save({
+      defaultPath: "response.bin",
+      title: i18n.t("Save response"),
+    });
     if (path) await invoke("save_response", { source, path });
   },
 };

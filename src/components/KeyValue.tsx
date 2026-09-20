@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { pair, type Pair } from "../types";
 export function KeyValue({
@@ -9,6 +10,7 @@ export function KeyValue({
   onChange: (r: Pair[]) => void;
   secrets?: boolean;
 }) {
+  const { t: tr } = useTranslation();
   const [secretDrafts, setSecretDrafts] = useState<Record<number, string>>({});
   function update(i: number, p: Partial<Pair>) {
     onChange(rows.map((r, n) => (n === i ? { ...r, ...p } : r)));
@@ -16,28 +18,31 @@ export function KeyValue({
   return (
     <div className="kv">
       <div className="kv-label">
-        ENABLED <span>KEY</span>
-        <span>VALUE</span>
-        <span>DESCRIPTION</span>
+        {tr("ENABLED")}
+        <span>{tr("KEY")}</span>
+        <span>{tr("VALUE")}</span>
+        <span>{tr("DESCRIPTION")}</span>
       </div>
       {rows.map((r, i) => (
         <div className="kv-row" key={i}>
           <input
-            aria-label={`Enable row ${i + 1}`}
+            aria-label={tr("Enable row %{index}", { index: i + 1 })}
             type="checkbox"
             checked={r.enabled}
             onChange={(e) => update(i, { enabled: e.target.checked })}
           />
           <input
-            aria-label={`Key ${i + 1}`}
-            placeholder="Key"
+            aria-label={tr("Key %{index}", { index: i + 1 })}
+            placeholder={tr("Key")}
             value={r.key}
             onChange={(e) => update(i, { key: e.target.value })}
           />
           <input
-            aria-label={`Value ${i + 1}`}
+            aria-label={tr("Value %{index}", { index: i + 1 })}
             type={r.isSecret ? "password" : "text"}
-            placeholder={r.secretRef ? "Saved in OS credential store" : "Value"}
+            placeholder={
+              r.secretRef ? tr("Saved in OS credential store") : tr("Value")
+            }
             value={r.isSecret ? (secretDrafts[i] ?? r.value) : r.value}
             onChange={(e) =>
               r.isSecret
@@ -56,8 +61,8 @@ export function KeyValue({
             }}
           />
           <input
-            aria-label={`Description ${i + 1}`}
-            placeholder="Description"
+            aria-label={tr("Description %{index}", { index: i + 1 })}
+            placeholder={tr("Description")}
             value={r.description}
             onChange={(e) => update(i, { description: e.target.value })}
           />
@@ -68,11 +73,11 @@ export function KeyValue({
                 checked={!!r.isSecret}
                 onChange={(e) => update(i, { isSecret: e.target.checked })}
               />
-              Secret
+              {tr("Secret")}
             </label>
           )}
           <button
-            title="Remove row"
+            title={tr("Remove row")}
             onClick={() => onChange(rows.filter((_, n) => n !== i))}
           >
             ×
@@ -80,7 +85,7 @@ export function KeyValue({
         </div>
       ))}
       <button className="subtle" onClick={() => onChange([...rows, pair()])}>
-        ＋ Add row
+        {tr("＋ Add row")}
       </button>
     </div>
   );
