@@ -87,14 +87,23 @@ npm run tauri build -- --bundles nsis
 
 生成目录：`src-tauri/target/release/bundle/dmg/` 或 `src-tauri/target/release/bundle/nsis/`。
 
-`.github/workflows/ci.yml` 在 push / PR 时运行 Windows/macOS 检查、测试和编译验证，不生成安装包、不发布。独立的 `release.yml` 只允许手动触发，名称为 **Build and Release**；push 或推送 tag 都不会触发发布工作流。
+日常开发使用 `dev`，通过 `dev → PR → main` 合入；尽量不要直接 push `main`。分支保护策略尚未由项目自动配置。
+
+| 操作 | 检查 / 测试 | 安装包 | GitHub Release |
+|---|---|---|---|
+| push `dev` | 自动执行 | 不生成 | 不发布 |
+| PR → `main` | 自动执行 | 不生成 | 不发布 |
+| `main` 更新（包括 PR 合并） | 自动执行 | Windows EXE + macOS DMG，保存在 Actions artifacts | 不发布 |
+| 手动运行 **Build and Release** | 发布版本校验 | 固定构建 `main` 的 Windows EXE + macOS DMG | 两个平台成功后发布 |
+
+`.github/workflows/ci.yml` 负责 Windows/macOS 检查和测试。`release.yml` 仅由 `main` push 或页面手动运行触发，推送 tag 不触发。手动运行会先读取 `main`，将其提交 SHA 固定给两个构建任务及 Release tag，避免运行期间 main 更新导致源码不一致。
 
 发布步骤：
 
-1. 将 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 的版本同步，更新对应锁文件并提交、推送。
-2. 打开 GitHub → Actions → **Build and Release** → **Run workflow**，选择要发布的分支，填写与项目版本一致且未使用的版本号（当前为 `v0.1.0`）。
+1. 在 `dev` 同步 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 及锁文件中的版本，经 PR 合入 `main`。
+2. 打开 GitHub → Actions → **Build and Release** → **Run workflow**，选择 `main`，填写与 main 项目版本一致且未使用的版本号，例如 `v0.1.1`。已有 `v0.1.0` tag，不能重复使用。
 3. Windows x64 NSIS 与 macOS Apple Silicon DMG 并行构建；任意平台失败都不会运行发布任务。
-4. 两个平台成功后，上传两个安装包至草稿 Release，再自动公开发布。tag 指向本次构建的提交，无需手动创建 tag。
+4. 两个平台成功后，上传两个安装包至草稿 Release，再自动公开发布。tag 指向本次构建的 main 提交，无需手动创建 tag。
 
 目标仓库为 `git@github.com:mingtaocao/localpm.git`；安装包在该仓库 Releases 页面下载。workflow 使用内置 `GITHUB_TOKEN`，无需额外个人 Token。Windows 为 unsigned，macOS 为 ad-hoc 签名、未公证。版本不匹配或 tag 已存在会提前失败；上传或公开发布失败时可能留下草稿，应先检查并处理该草稿再重试。在线发布结果应以对应工作流运行记录为准。
 
