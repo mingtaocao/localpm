@@ -74,6 +74,8 @@ API: `http://127.0.0.1:47831/echo`；HTTP Proxy: `http://127.0.0.1:47832`。其�
 
 ## 原生安装包
 
+完整命令、本机临时 Cargo 用法及 DMG 失败时的备用封装方法见 [BUILDING.md](BUILDING.md)。
+
 在对应平台执行，不交叉编译 Windows：
 
 ```sh
