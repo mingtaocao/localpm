@@ -193,7 +193,7 @@ aside > .sidebar-bottom {
 nav {
   display: flex;
   flex: 0 0 auto;
-  background: #f6f8f6;
+  background: var(--sidebar);
   padding: 0 10px;
   border-bottom: 1px solid var(--border);
 }
@@ -202,7 +202,7 @@ nav button {
   -webkit-appearance: none;
   appearance: none;
   flex: 1 0 auto;
-  color: #26332f;
+  color: var(--text);
   white-space: nowrap;
   font-size: 11px;
   border: 0;
