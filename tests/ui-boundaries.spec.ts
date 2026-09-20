@@ -105,3 +105,50 @@ test("10000 requests use bounded DOM and searchable virtual tree", async ({
   ).toBeVisible();
   expect(await page.locator(".tree-row").count()).toBe(2);
 });
+
+test("workspace divider resizes, supports keyboard, and restores its width", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    (window as any).__TAURI_INTERNALS__ = {
+      invoke: async () => ({
+        workspace: {
+          collections: [],
+          items: [],
+          environments: [],
+          globals: [],
+          settings: {},
+          activeEnvironment: null,
+        },
+        drafts: [],
+        history: [],
+      }),
+    };
+  });
+  await page.goto("/");
+  const divider = page.getByRole("separator", {
+    name: "Resize workspace panel",
+  });
+  await expect(divider).toHaveCSS("cursor", "col-resize");
+  const box = await divider.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(380, box!.y + 100);
+  await page.mouse.up();
+  await expect(page.locator("aside")).toHaveCSS("width", "380px");
+  await expect(divider).toHaveAttribute("aria-valuenow", "380");
+  expect(
+    await page.evaluate(() =>
+      localStorage.getItem("local-postman.sidebar-width"),
+    ),
+  ).toBe("380");
+
+  await page.reload();
+  await expect(page.locator("aside")).toHaveCSS("width", "380px");
+  await divider.focus();
+  await divider.press("ArrowLeft");
+  await expect(page.locator("aside")).toHaveCSS("width", "364px");
+  await divider.press("Home");
+  await expect(page.locator("aside")).toHaveCSS("width", "266px");
+});
