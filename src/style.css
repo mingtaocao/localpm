@@ -133,17 +133,33 @@ aside {
   background: #edf1ed;
   font-size: 11px;
 }
+/* Keep sidebar controls outside the list's shrinking scroll area. */
+aside > .workspace-title,
+aside > .search,
+aside > .sidebar-tools,
+aside > .sidebar-bottom {
+  flex-shrink: 0;
+}
 nav {
   display: flex;
+  flex: 0 0 auto;
+  background: #f6f8f6;
   padding: 0 10px;
   border-bottom: 1px solid #dfe6e0;
 }
 nav button {
+  /* Paint tabs consistently in macOS WKWebView, including inactive tabs. */
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1 0 auto;
+  color: #26332f;
+  white-space: nowrap;
   font-size: 11px;
   border: 0;
+  border-bottom: 2px solid transparent;
   background: transparent;
   border-radius: 0;
-  padding: 12px 8px;
+  padding: 12px 4px;
 }
 nav .active,
 .editor-tabs .active {
@@ -211,6 +227,8 @@ nav .active,
   background: transparent;
 }
 .history-list {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: 10px;
 }
