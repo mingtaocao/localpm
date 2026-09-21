@@ -26,6 +26,15 @@ type Tab = {
   execution?: string;
   error?: unknown;
 };
+const DEFAULT_SIDEBAR_WIDTH = 266;
+const MIN_SIDEBAR_WIDTH = 210;
+const SIDEBAR_STORAGE_KEY = "local-postman.sidebar-width";
+function clampSidebarWidth(width: number) {
+  return Math.min(
+    Math.max(MIN_SIDEBAR_WIDTH, width),
+    Math.max(MIN_SIDEBAR_WIDTH, Math.min(520, window.innerWidth - 560)),
+  );
+}
 export default function App() {
   const { t: tr } = useTranslation();
   const phrases = EditorState.phrases.of(editorPhrases());
@@ -51,6 +60,13 @@ export default function App() {
   const [cookies, setCookies] = useState<any[]>([]);
   const [preview, setPreview] = useState<any>(null);
   const [topHeight, setTopHeight] = useState(340);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = Number(localStorage.getItem(SIDEBAR_STORAGE_KEY));
+    return clampSidebarWidth(
+      Number.isFinite(saved) && saved ? saved : DEFAULT_SIDEBAR_WIDTH,
+    );
+  });
+  const [resizingSidebar, setResizingSidebar] = useState(false);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -487,8 +503,8 @@ export default function App() {
           </button>
         </div>
       </header>
-      <div className="shell">
-        <aside>
+      <div className={`shell ${resizingSidebar ? "resizing-sidebar" : ""}`}>
+        <aside style={{ width: sidebarWidth }}>
           <div className="workspace-title">
             {tr("My Workspace")}
             <span>⌄</span>
@@ -596,6 +612,55 @@ export default function App() {
             </div>
           )}
         </aside>
+        <div
+          className="sidebar-divider"
+          role="separator"
+          aria-label={tr("Resize workspace panel")}
+          aria-orientation="vertical"
+          aria-valuemin={MIN_SIDEBAR_WIDTH}
+          aria-valuemax={Math.max(
+            MIN_SIDEBAR_WIDTH,
+            Math.min(520, window.innerWidth - 560),
+          )}
+          aria-valuenow={Math.round(sidebarWidth)}
+          tabIndex={0}
+          onDoubleClick={() => {
+            setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+            localStorage.setItem(
+              SIDEBAR_STORAGE_KEY,
+              String(DEFAULT_SIDEBAR_WIDTH),
+            );
+          }}
+          onKeyDown={(e) => {
+            if (!["ArrowLeft", "ArrowRight", "Home"].includes(e.key)) return;
+            e.preventDefault();
+            const next =
+              e.key === "Home"
+                ? DEFAULT_SIDEBAR_WIDTH
+                : clampSidebarWidth(
+                    sidebarWidth + (e.key === "ArrowRight" ? 16 : -16),
+                  );
+            setSidebarWidth(next);
+            localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+          }}
+          onPointerDown={(e) => {
+            e.currentTarget.setPointerCapture(e.pointerId);
+            setResizingSidebar(true);
+          }}
+          onPointerMove={(e) => {
+            if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+            setSidebarWidth(clampSidebarWidth(e.clientX));
+          }}
+          onPointerUp={(e) => {
+            if (e.currentTarget.hasPointerCapture(e.pointerId))
+              e.currentTarget.releasePointerCapture(e.pointerId);
+            const next = clampSidebarWidth(e.clientX);
+            setSidebarWidth(next);
+            localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+            setResizingSidebar(false);
+          }}
+          onLostPointerCapture={() => setResizingSidebar(false)}
+        />
         <main>
           <div className="request-tabs">
             {tabs.map((t) => (

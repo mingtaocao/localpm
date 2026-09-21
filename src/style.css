@@ -167,10 +167,35 @@ aside {
   width: 266px;
   flex-shrink: 0;
   background: var(--sidebar);
-  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: auto;
+}
+.sidebar-divider {
+  position: relative;
+  z-index: 2;
+  width: 5px;
+  flex: 0 0 5px;
+  cursor: col-resize;
+  background: var(--border);
+  touch-action: none;
+  transition: background 120ms ease;
+}
+.sidebar-divider::after {
+  content: "";
+  position: absolute;
+  inset: 0 -3px;
+}
+.sidebar-divider:hover,
+.sidebar-divider:focus-visible,
+.resizing-sidebar .sidebar-divider {
+  background: var(--accent);
+  outline: none;
+}
+.resizing-sidebar,
+.resizing-sidebar * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 .workspace-title {
   display: flex;

@@ -246,5 +246,6 @@
   "cm.Completions": "Completions",
   "cm.Diagnostics": "Diagnostics",
   "cm.No diagnostics": "No diagnostics",
-  "cm.Control character": "Control character"
+  "cm.Control character": "Control character",
+  "Resize workspace panel": "Resize workspace panel"
 }

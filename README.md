@@ -91,8 +91,8 @@ npm run tauri build -- --bundles nsis
 
 | 操作 | 检查 / 测试 | 安装包 | GitHub Release |
 |---|---|---|---|
-| push `dev` | 自动执行 | 不生成 | 不发布 |
-| PR → `main` | 自动执行 | 不生成 | 不发布 |
+| push `dev` | 不执行 | 不生成 | 不发布 |
+| 创建或更新 PR → `main` | 自动执行 | 不生成 | 不发布 |
 | `main` 更新（包括 PR 合并） | 自动执行 | Windows EXE + macOS DMG，保存在 Actions artifacts | 不发布 |
 | 手动运行 **Build and Release** | 发布版本校验 | 固定构建 `main` 的 Windows EXE + macOS DMG | 两个平台成功后发布 |
 

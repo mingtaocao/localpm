@@ -81,7 +81,7 @@ npm run test:e2e
 
 ## 分支与自动打包
 
-- 日常在 `dev` 开发并 push，只检查和测试。
+- 日常在 `dev` 开发并 push，不触发 GitHub Actions；创建或更新 `dev → main` PR 时才检查和测试。
 - `dev` 通过 PR 合入 `main` 后，自动构建 Windows EXE 和 macOS DMG；在该次 **Build and Release** 的 Artifacts 下载，不创建 Release。
 - 正式发布时到 Actions 手动运行 **Build and Release** 并填写新版本号；固定从 `main` 构建，两个平台成功后才发布 Release。
 - 上面的本地命令不受分支限制，也不会发布。
