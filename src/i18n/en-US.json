@@ -20,7 +20,7 @@
   "Cookie domain, path, Secure, HttpOnly, expiry and SameSite are honored by the HTTP engine. Session cookies expire when the app exits.": "Cookie domain, path, Secure, HttpOnly, expiry and SameSite are honored by the HTTP engine. Session cookies expire when the app exits.",
   "Clear cookie jar": "Clear cookie jar",
   "Manage cookies": "Manage cookies",
-  "Local Postman 0.1.0 · Local SQLite storage · No login · Scripts preserved, never executed.": "Local Postman 0.1.0 · Local SQLite storage · No login · Scripts preserved, never executed.",
+  "Local Postman 0.2.0 · Local SQLite storage · No login · Scripts preserved, never executed.": "Local Postman 0.2.0 · Local SQLite storage · No login · Scripts preserved, never executed.",
   "Name": "Name",
   "Collection variables": "Collection variables",
   "Export Postman v2.1": "Export Postman v2.1",

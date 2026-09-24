@@ -101,7 +101,7 @@ npm run tauri build -- --bundles nsis
 发布步骤：
 
 1. 在 `dev` 同步 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 及锁文件中的版本，经 PR 合入 `main`。
-2. 打开 GitHub → Actions → **Build and Release** → **Run workflow**，选择 `main`，填写与 main 项目版本一致且未使用的版本号，例如 `v0.1.1`。已有 `v0.1.0` tag，不能重复使用。
+2. 打开 GitHub → Actions → **Build and Release** → **Run workflow**，选择 `main`，填写与 main 项目版本一致且未使用的版本号；当前版本填写 `v0.2.0`。已有 `v0.1.0` tag，不能重复使用。
 3. Windows x64 NSIS 与 macOS Apple Silicon DMG 并行构建；任意平台失败都不会运行发布任务。
 4. 两个平台成功后，上传两个安装包至草稿 Release，再自动公开发布。tag 指向本次构建的 main 提交，无需手动创建 tag。
 
