@@ -20,7 +20,7 @@
   "Cookie domain, path, Secure, HttpOnly, expiry and SameSite are honored by the HTTP engine. Session cookies expire when the app exits.": "HTTP 引擎遵循 Cookie 的域名、路径、Secure、HttpOnly、有效期及 SameSite 设置。会话 Cookie 在应用退出时失效。",
   "Clear cookie jar": "清空 Cookie",
   "Manage cookies": "管理 Cookie",
-  "Local Postman 0.1.0 · Local SQLite storage · No login · Scripts preserved, never executed.": "Local Postman 0.1.0 · SQLite 本地存储 · 无需登录 · 仅保留脚本，不执行",
+  "Local Postman 0.2.0 · Local SQLite storage · No login · Scripts preserved, never executed.": "Local Postman 0.2.0 · SQLite 本地存储 · 无需登录 · 仅保留脚本，不执行",
   "Name": "名称",
   "Collection variables": "集合变量",
   "Export Postman v2.1": "导出 Postman v2.1",
