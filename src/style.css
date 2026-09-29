@@ -58,7 +58,7 @@
   color: var(--text);
   background: var(--surface);
   font-synthesis: none;
-  font-size: 13px;
+  font-size: 15px;
 }
 * {
   box-sizing: border-box;
@@ -133,7 +133,7 @@ header {
 }
 .brand small {
   margin-left: 12px;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 1.4px;
   color: var(--muted);
 }
@@ -147,7 +147,7 @@ header {
   color: var(--on-accent);
   border-radius: 8px;
   font-weight: 750;
-  font-size: 12px;
+  font-size: 14px;
 }
 .header-actions {
   display: flex;
@@ -155,7 +155,7 @@ header {
   align-items: center;
 }
 .offline {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 .shell {
@@ -206,7 +206,7 @@ aside {
 .search {
   margin: 0 12px 15px;
   background: var(--hover);
-  font-size: 11px;
+  font-size: 13px;
 }
 /* Keep sidebar controls outside the list's shrinking scroll area. */
 aside > .workspace-title,
@@ -229,7 +229,7 @@ nav button {
   flex: 1 0 auto;
   color: var(--text);
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 13px;
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
@@ -249,7 +249,7 @@ nav .active,
 }
 .sidebar-tools button {
   padding: 6px 5px;
-  font-size: 10px;
+  font-size: 12px;
   background: transparent;
 }
 .tree {
@@ -283,7 +283,7 @@ nav .active,
   background: var(--selected) !important;
 }
 .method {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--accent);
   min-width: 29px;
@@ -298,7 +298,7 @@ nav .active,
   border-top: 1px solid var(--border);
 }
 .sidebar-bottom button {
-  font-size: 10px;
+  font-size: 12px;
   background: transparent;
 }
 .history-list {
@@ -349,7 +349,7 @@ main {
 .request-tabs > button {
   border: 0;
   background: transparent;
-  font-size: 11px;
+  font-size: 13px;
 }
 .tab.active {
   background: var(--surface);
@@ -373,7 +373,7 @@ main {
   font-weight: 600;
 }
 .request-title button {
-  font-size: 11px;
+  font-size: 13px;
 }
 .url-bar {
   display: flex;
@@ -395,7 +395,7 @@ main {
 .url-input {
   flex: 1;
   font-family: ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 14px;
 }
 .editor-tabs {
   display: flex;
@@ -409,7 +409,7 @@ main {
   background: transparent;
   border-radius: 0;
   padding: 11px 10px;
-  font-size: 12px;
+  font-size: 14px;
 }
 .editor-tabs .active {
   border-bottom: 2px solid var(--accent);
@@ -432,7 +432,7 @@ main {
   border-radius: 0;
   padding: 10px 5px;
   font-family: ui-monospace, monospace;
-  font-size: 11px;
+  font-size: 13px;
 }
 .kv-row input[type="checkbox"] {
   width: 22px;
@@ -442,7 +442,7 @@ main {
 }
 .kv-label {
   display: flex;
-  font-size: 8px;
+  font-size: 11px;
   color: var(--muted);
   letter-spacing: 1px;
   padding: 5px 0 9px;
@@ -455,11 +455,11 @@ main {
   background: transparent;
   border: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
   margin: 10px 0;
 }
 .tiny {
-  font-size: 9px;
+  font-size: 11px;
   display: flex;
   align-items: center;
 }
@@ -474,7 +474,7 @@ main {
   align-items: center;
   gap: 20px;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: 14px;
 }
 .form input,
 .form select,
@@ -485,21 +485,21 @@ main {
   width: 100%;
 }
 .form label > button {
-  font-size: 10px;
+  font-size: 12px;
 }
 .form textarea {
   min-height: 70px;
 }
 .muted {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.7;
 }
 .warning {
   background: var(--warning-bg);
   color: var(--warning-text);
   padding: 9px 14px;
-  font-size: 11px;
+  font-size: 13px;
   border-radius: 4px;
 }
 .body-options {
@@ -508,7 +508,7 @@ main {
   margin-bottom: 9px;
 }
 .body-options select {
-  font-size: 11px;
+  font-size: 13px;
   padding: 4px 12px;
 }
 .multipart-row {
@@ -547,7 +547,7 @@ main {
   flex-shrink: 0;
 }
 .response-heading h3 {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 650;
   margin: 4px 0;
 }
@@ -555,7 +555,7 @@ main {
   display: flex;
   gap: 17px;
   align-items: center;
-  font-size: 11px;
+  font-size: 13px;
 }
 .metrics b {
   color: var(--accent);
@@ -564,7 +564,7 @@ main {
   color: var(--muted);
 }
 .metrics button {
-  font-size: 10px;
+  font-size: 12px;
   padding: 4px 8px;
 }
 .response-empty {
@@ -583,17 +583,17 @@ main {
   color: var(--muted);
 }
 .response-empty p {
-  font-size: 12px;
+  font-size: 14px;
 }
 .response-empty small {
   display: block;
   margin-top: 20px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 .response .cm-editor {
   flex: 1;
-  font-size: 12px;
+  font-size: 14px;
 }
 .response-data {
   padding: 12px 20px;
@@ -604,7 +604,7 @@ main {
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
   align-items: center;
-  font-size: 11px;
+  font-size: 13px;
 }
 .response-header b {
   min-width: 150px;
@@ -626,7 +626,7 @@ footer {
   align-items: center;
   gap: 20px;
   padding: 0 14px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   flex-shrink: 0;
 }
@@ -634,7 +634,7 @@ footer button {
   border: 0;
   background: transparent;
   padding: 4px;
-  font-size: 10px;
+  font-size: 12px;
 }
 footer span:last-child {
   margin-left: auto;
@@ -649,8 +649,38 @@ footer span:last-child {
   background: var(--console-bg);
   color: var(--console-text);
   font:
-    11px ui-monospace,
+    13px ui-monospace,
     monospace;
+}
+.console-resizer {
+  position: relative;
+  height: 10px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  touch-action: none;
+  background: var(--border);
+}
+.console-resizer::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 3px;
+  width: 42px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--border-hover);
+  transform: translateX(-50%);
+}
+.console-resizer:hover,
+.console-resizer:focus-visible,
+.console-dragging .console-resizer {
+  background: var(--accent);
+  outline: none;
+}
+.console-dragging,
+.console-dragging * {
+  user-select: none !important;
+  cursor: row-resize !important;
 }
 .console-toolbar {
   min-height: 40px;
@@ -662,12 +692,12 @@ footer span:last-child {
 }
 .console-toolbar strong {
   font-family: inherit;
-  font-size: 12px;
+  font-size: 14px;
 }
 .console-toolbar select,
 .console-toolbar button {
   padding: 4px 8px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .console-toolbar span {
   color: var(--muted);
@@ -684,7 +714,7 @@ footer span:last-child {
 }
 .console-entry summary {
   display: grid;
-  grid-template-columns: 82px 48px minmax(180px, 1fr) 70px 80px;
+  grid-template-columns: 88px 55px minmax(130px, 1fr) 70px 84px;
   align-items: center;
   gap: 8px;
   min-height: 34px;
@@ -778,11 +808,11 @@ footer span:last-child {
   padding-top: 25px;
 }
 .welcome-grid b {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 .welcome-grid p {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 1.7;
 }
@@ -806,7 +836,7 @@ footer span:last-child {
   margin: 15px 8px 0 0;
 }
 .panel h3 {
-  font-size: 13px;
+  font-size: 15px;
   margin-top: 25px;
 }
 .panel .form {
@@ -844,7 +874,7 @@ footer span:last-child {
 .empty-small {
   padding: 25px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.8;
 }
 .loading {
@@ -857,7 +887,7 @@ footer span:last-child {
 .panel pre {
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 12px;
+  font-size: 14px;
 }
 .cm-editor {
   min-height: 100px;
@@ -874,21 +904,21 @@ footer span:last-child {
     width: 225px;
   }
   .sidebar-tools button {
-    font-size: 9px;
+    font-size: 11px;
   }
   .request-title {
     padding: 8px 12px;
   }
   .request-title button {
     padding: 5px;
-    font-size: 10px;
+    font-size: 12px;
   }
 }
 .tree-row .collapse {
   border: 0;
   background: transparent;
   padding: 0 3px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 .tree-row > .tree-item,
@@ -1005,7 +1035,7 @@ nav,
 .console-toolbar input {
   width: min(320px, 32vw);
   padding: 5px 8px;
-  font-size: 11px;
+  font-size: 13px;
   background: var(--surface);
 }
 .console-entry-error summary {
@@ -1023,7 +1053,7 @@ nav,
 }
 .console-detail-toolbar button {
   padding: 4px 8px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .console-columns {
   display: grid;
@@ -1035,7 +1065,7 @@ nav,
 }
 .console-details h5 {
   margin: 14px 0 6px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 .console-address,
@@ -1071,7 +1101,7 @@ nav,
 }
 @media (max-width: 900px) {
   .console-entry summary {
-    grid-template-columns: 55px 45px minmax(80px, 1fr) 55px 65px;
+    grid-template-columns: 65px 48px minmax(70px, 1fr) 60px 70px;
     gap: 4px;
     padding: 5px 8px;
   }
@@ -1080,6 +1110,5 @@ nav,
   }
 }
 
-.console-expanded { height: min(70vh, 760px); }
 .console-toolbar button { margin-left: 0; }
 .console-toolbar input { margin-left: auto; }
