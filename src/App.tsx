@@ -21,6 +21,10 @@ import { Network } from "./components/Network";
 import { Auth } from "./components/Auth";
 import { CollectionTree } from "./components/CollectionTree";
 import { HistoryPanel } from "./components/HistoryPanel";
+import {
+  ConsolePanel,
+  type ConsoleEntry,
+} from "./components/ConsolePanel";
 import { requestToCurl } from "./utils/curl";
 type Tab = {
   request: RequestSpec;
@@ -32,6 +36,20 @@ type Tab = {
 const DEFAULT_SIDEBAR_WIDTH = 266;
 const MIN_SIDEBAR_WIDTH = 210;
 const SIDEBAR_STORAGE_KEY = "local-postman.sidebar-width";
+const SENSITIVE_HEADERS = new Set([
+  "authorization",
+  "cookie",
+  "proxy-authorization",
+  "x-api-key",
+]);
+function consoleHeaders(headers: Pair[]): [string, string][] {
+  return headers
+    .filter((header) => header.enabled && header.key)
+    .map((header) => [
+      header.key,
+      SENSITIVE_HEADERS.has(header.key.toLowerCase()) ? "••••••" : header.value,
+    ]);
+}
 function clampSidebarWidth(width: number) {
   return Math.min(
     Math.max(MIN_SIDEBAR_WIDTH, width),
@@ -71,7 +89,7 @@ export default function App() {
   });
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [consoleOpen, setConsoleOpen] = useState(false);
-  const [logs, setLogs] = useState<string[]>([]);
+  const [consoleEntries, setConsoleEntries] = useState<ConsoleEntry[]>([]);
   const searchRef = useRef<HTMLInputElement>(null);
   const tab = tabs.find((t) => t.request.id === active);
   const r = tab?.request;
@@ -165,20 +183,49 @@ export default function App() {
   const send = async () => {
     if (!r || !w) return;
     const id = crypto.randomUUID();
+    const started = performance.now();
+    const request = structuredClone(r);
+    const baseEntry = {
+      id,
+      time: new Date().toLocaleTimeString(),
+      method: request.method,
+      url: request.url,
+      requestHeaders: consoleHeaders(request.headers),
+      redirects: [] as string[],
+    };
     updateTab(r.id, { execution: id, error: undefined });
     try {
       if (w.collections.length) await save();
       else await persist(w);
-      const result = await api.send(r, id);
+      const result = await api.send(request, id);
       updateTab(r.id, { response: result });
-      setLogs((ls) =>
+      setConsoleEntries((entries) =>
         [
-          `${new Date().toLocaleTimeString()} ${r.method} · ${result.status} · ${result.duration} ms`,
-          ...ls,
+          {
+            ...baseEntry,
+            status: result.status,
+            statusText: result.statusText,
+            duration: result.duration,
+            size: result.size,
+            responseHeaders: result.headers,
+            redirects: result.redirects,
+          },
+          ...entries,
         ].slice(0, 100),
       );
     } catch (e: any) {
       updateTab(r.id, { error: e });
+      setConsoleEntries((entries) =>
+        [
+          {
+            ...baseEntry,
+            duration: Math.round(performance.now() - started),
+            error: formatError(e),
+          },
+          ...entries,
+        ].slice(0, 100),
+      );
+      setConsoleOpen(true);
     } finally {
       updateTab(r.id, { execution: undefined });
       api.history().then(setHistory).catch(fail);
@@ -1551,13 +1598,10 @@ export default function App() {
         <span>{tr("openRequests", { count: tabs.length })}</span>
       </footer>
       {consoleOpen && (
-        <div className="console">
-          {logs.length
-            ? logs.map((s, i) => <div key={i}>{s}</div>)
-            : tr(
-                "No requests sent this session. Credentials are never logged.",
-              )}
-        </div>
+        <ConsolePanel
+          entries={consoleEntries}
+          onClear={() => setConsoleEntries([])}
+        />
       )}
     </div>
   );
