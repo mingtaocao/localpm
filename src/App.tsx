@@ -2,6 +2,7 @@ import { editorPhrases } from "./i18n/editor";
 import { usePreferences } from "./stores/preferences";
 import { formatError } from "./i18n/errors";
 import { useTranslation } from "react-i18next";
+import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 import CodeMirror, { EditorState } from "@uiw/react-codemirror";
 import { json } from "@codemirror/lang-json";
@@ -24,6 +25,7 @@ import { HistoryPanel } from "./components/HistoryPanel";
 import {
   ConsolePanel,
   type ConsoleEntry,
+  type RequestDiagnostic,
 } from "./components/ConsolePanel";
 import { requestToCurl } from "./utils/curl";
 type Tab = {
@@ -36,11 +38,6 @@ type Tab = {
 const DEFAULT_SIDEBAR_WIDTH = 266;
 const MIN_SIDEBAR_WIDTH = 210;
 const SIDEBAR_STORAGE_KEY = "local-postman.sidebar-width";
-function consoleHeaders(headers: Pair[]): [string, string][] {
-  return headers
-    .filter((header) => header.enabled && header.key)
-    .map((header) => [header.key, header.value]);
-}
 function clampSidebarWidth(width: number) {
   return Math.min(
     Math.max(MIN_SIDEBAR_WIDTH, width),
@@ -81,6 +78,26 @@ export default function App() {
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [consoleEntries, setConsoleEntries] = useState<ConsoleEntry[]>([]);
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<RequestDiagnostic>("request-diagnostic", ({ payload }) => {
+      setConsoleEntries((entries) =>
+        entries.map((entry) =>
+          entry.id === payload.id
+            ? { ...entry, ...payload, requestHeaders: payload.headers, prepared: true }
+            : entry,
+        ),
+      );
+    }).then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    }).catch(fail);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
   const searchRef = useRef<HTMLInputElement>(null);
   const tab = tabs.find((t) => t.request.id === active);
   const r = tab?.request;
@@ -176,14 +193,17 @@ export default function App() {
     const id = crypto.randomUUID();
     const started = performance.now();
     const request = structuredClone(r);
-    const baseEntry = {
+    const baseEntry: ConsoleEntry = {
       id,
       time: new Date().toLocaleTimeString(),
       method: request.method,
       url: request.url,
-      requestHeaders: consoleHeaders(request.headers),
-      redirects: [] as string[],
+      requestHeaders: [],
+      redirects: [],
+      prepared: false,
+      phase: "pending",
     };
+    setConsoleEntries((entries) => [baseEntry, ...entries].slice(0, 100));
     updateTab(r.id, { execution: id, error: undefined });
     try {
       if (w.collections.length) await save();
@@ -191,30 +211,41 @@ export default function App() {
       const result = await api.send(request, id);
       updateTab(r.id, { response: result });
       setConsoleEntries((entries) =>
-        [
-          {
-            ...baseEntry,
-            status: result.status,
-            statusText: result.statusText,
-            duration: result.duration,
-            size: result.size,
-            responseHeaders: result.headers,
-            redirects: result.redirects,
-          },
-          ...entries,
-        ].slice(0, 100),
+        entries.map((entry) =>
+          entry.id === id
+            ? {
+                ...entry,
+                phase: "complete",
+                status: result.status,
+                statusText: result.statusText,
+                duration: result.duration,
+                size: result.size,
+                responseHeaders: result.headers,
+                responseBody: result.body,
+                responseTruncated: result.truncated,
+                responseBinary: result.binary,
+                finalUrl: result.finalUrl,
+                redirects: result.redirects,
+              }
+            : entry,
+        ),
       );
-    } catch (e: any) {
+    } catch (e: unknown) {
       updateTab(r.id, { error: e });
       setConsoleEntries((entries) =>
-        [
-          {
-            ...baseEntry,
-            duration: Math.round(performance.now() - started),
-            error: formatError(e),
-          },
-          ...entries,
-        ].slice(0, 100),
+        entries.map((entry) =>
+          entry.id === id
+            ? {
+                ...entry,
+                phase: "error",
+                duration: Math.round(performance.now() - started),
+                error: formatError(e),
+                errorDetail: e && typeof e === "object" && "message" in e
+                  ? String(e.message)
+                  : String(e),
+              }
+            : entry,
+        ),
       );
       setConsoleOpen(true);
     } finally {
