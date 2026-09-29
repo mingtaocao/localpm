@@ -8,7 +8,7 @@ pub mod variables;
 pub mod windows_proxy;
 use domain::*;
 use serde_json::{json, Value};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 struct AppState {
     storage: storage::Storage,
     http: http::HttpEngine,
@@ -149,9 +149,12 @@ async fn send_request(
     let ws = state.storage.load()?;
     let prepared = http::prepare(&ws, &request)?;
     let vars = prepared.vars.clone();
+    let emit = |payload| {
+        let _ = app.emit("request-diagnostic", payload);
+    };
     let result = state
         .http
-        .execute_with_diagnostics(prepared, execution_id, Some(app))
+        .execute_with_diagnostics(prepared, execution_id, Some(&emit))
         .await;
     state.storage.save_cookies(
         &*state
