@@ -21,6 +21,7 @@ import { Network } from "./components/Network";
 import { Auth } from "./components/Auth";
 import { CollectionTree } from "./components/CollectionTree";
 import { HistoryPanel } from "./components/HistoryPanel";
+import { requestToCurl } from "./utils/curl";
 type Tab = {
   request: RequestSpec;
   dirty: boolean;
@@ -937,6 +938,16 @@ export default function App() {
                       </button>
                     </>
                   )}
+                  <button
+                    onClick={() =>
+                      void navigator.clipboard
+                        .writeText(requestToCurl(r))
+                        .then(() => setNotice("cURL copied."))
+                        .catch(fail)
+                    }
+                  >
+                    {tr("Copy cURL")}
+                  </button>
                   <button
                     onClick={() =>
                       void api
