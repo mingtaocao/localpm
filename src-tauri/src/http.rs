@@ -3,13 +3,13 @@ use base64::Engine;
 use reqwest::Client;
 use reqwest_cookie_store::{CookieStore, CookieStoreMutex};
 use serde_json::{json, Value};
-use tauri::Emitter;
 use std::{
     collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+use tauri::Emitter;
 use tokio::io::AsyncWriteExt;
 use tokio_util::{io::ReaderStream, sync::CancellationToken};
 #[derive(Clone)]
@@ -248,7 +248,11 @@ fn map_error(e: reqwest::Error, proxy: bool) -> AppError {
     let code = if e.is_timeout() {
         "REQUEST_TIMEOUT"
     } else if e.is_connect() {
-        if lower.contains("dns error") || lower.contains("failed to lookup address") || lower.contains("no such host") || lower.contains("name or service not known") {
+        if lower.contains("dns error")
+            || lower.contains("failed to lookup address")
+            || lower.contains("no such host")
+            || lower.contains("name or service not known")
+        {
             "DNS_RESOLVE_FAILED"
         } else if lower.contains("certificate") {
             "TLS_ERROR"
@@ -262,10 +266,7 @@ fn map_error(e: reqwest::Error, proxy: bool) -> AppError {
     } else {
         "BODY_READ_FAILED"
     };
-    AppError::new(
-        code,
-        format!("{code}: {detail}"),
-    )
+    AppError::new(code, format!("{code}: {detail}"))
 }
 impl HttpEngine {
     pub fn new(temp: PathBuf) -> Self {
@@ -276,7 +277,12 @@ impl HttpEngine {
             temp,
         }
     }
-    fn client(&self, p: &PreparedRequest, mode: &str, resolved_proxy: Option<&str>) -> Result<Client> {
+    fn client(
+        &self,
+        p: &PreparedRequest,
+        mode: &str,
+        resolved_proxy: Option<&str>,
+    ) -> Result<Client> {
         let proxy = &p.settings["proxy"];
         let key = format!(
             "{}|{}|{}|{}|{}|{:?}",
@@ -345,7 +351,12 @@ impl HttpEngine {
             t.cancel()
         }
     }
-    pub async fn execute(&self, p: PreparedRequest, execution_id: String, app: tauri::AppHandle) -> Result<Response> {
+    pub async fn execute(
+        &self,
+        p: PreparedRequest,
+        execution_id: String,
+        app: tauri::AppHandle,
+    ) -> Result<Response> {
         let token = CancellationToken::new();
         self.cancellations
             .lock()
@@ -356,7 +367,12 @@ impl HttpEngine {
         self.cancellations.lock().unwrap().remove(&execution_id);
         result
     }
-    async fn perform(&self, p: &PreparedRequest, id: &str, app: &tauri::AppHandle) -> Result<Response> {
+    async fn perform(
+        &self,
+        p: &PreparedRequest,
+        id: &str,
+        app: &tauri::AppHandle,
+    ) -> Result<Response> {
         let started = Instant::now();
         let host = url::Url::parse(&p.url)
             .ok()
@@ -506,7 +522,10 @@ impl HttpEngine {
             "verifyTls": p.settings["verifyTls"] != false,
         }));
         let through_proxy = mode == "manual" || mode == "resolved";
-        let mut response = client.execute(built).await.map_err(|e| map_error(e, through_proxy))?;
+        let mut response = client
+            .execute(built)
+            .await
+            .map_err(|e| map_error(e, through_proxy))?;
         let status = response.status();
         if status.as_u16() == 407 {
             return Err(AppError::new(
@@ -540,7 +559,11 @@ impl HttpEngine {
             .map_err(|_| AppError::new("BODY_READ_FAILED", "Cannot cache response"))?;
         let mut preview = vec![];
         let mut size = 0;
-        while let Some(chunk) = response.chunk().await.map_err(|e| map_error(e, through_proxy))? {
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|e| map_error(e, through_proxy))?
+        {
             size += chunk.len();
             file.write_all(&chunk)
                 .await
