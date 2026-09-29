@@ -351,11 +351,15 @@ impl HttpEngine {
             t.cancel()
         }
     }
-    pub async fn execute(
+    pub async fn execute(&self, p: PreparedRequest, execution_id: String) -> Result<Response> {
+        self.execute_with_diagnostics(p, execution_id, None).await
+    }
+
+    pub async fn execute_with_diagnostics(
         &self,
         p: PreparedRequest,
         execution_id: String,
-        app: tauri::AppHandle,
+        app: Option<tauri::AppHandle>,
     ) -> Result<Response> {
         let token = CancellationToken::new();
         self.cancellations
@@ -363,7 +367,7 @@ impl HttpEngine {
             .unwrap()
             .insert(execution_id.clone(), token.clone());
         let timeout = p.settings["timeout"].as_u64().unwrap_or(30000).max(1);
-        let result = tokio::select! {_ = token.cancelled()=>Err(AppError::new("REQUEST_CANCELLED","Request cancelled")), result=tokio::time::timeout(Duration::from_millis(timeout),self.perform(&p,&execution_id,&app))=>result.unwrap_or_else(|_|Err(AppError::new("REQUEST_TIMEOUT","Request timed out")))};
+        let result = tokio::select! {_ = token.cancelled()=>Err(AppError::new("REQUEST_CANCELLED","Request cancelled")), result=tokio::time::timeout(Duration::from_millis(timeout),self.perform(&p,&execution_id,app.as_ref()))=>result.unwrap_or_else(|_|Err(AppError::new("REQUEST_TIMEOUT","Request timed out")))};
         self.cancellations.lock().unwrap().remove(&execution_id);
         result
     }
@@ -371,7 +375,7 @@ impl HttpEngine {
         &self,
         p: &PreparedRequest,
         id: &str,
-        app: &tauri::AppHandle,
+        app: Option<&tauri::AppHandle>,
     ) -> Result<Response> {
         let started = Instant::now();
         let host = url::Url::parse(&p.url)
@@ -507,7 +511,8 @@ impl HttpEngine {
             "resolved" => "system PAC proxy",
             _ => "system proxy (automatic)",
         };
-        let _ = app.emit("request-diagnostic", json!({
+        if let Some(app) = app {
+            let _ = app.emit("request-diagnostic", json!({
             "id": id,
             "method": built.method().as_str(),
             "url": built.url().as_str(),
@@ -520,7 +525,8 @@ impl HttpEngine {
             "proxyBypassed": bypassed,
             "timeout": p.settings["timeout"].as_u64().unwrap_or(30000),
             "verifyTls": p.settings["verifyTls"] != false,
-        }));
+            }));
+        }
         let through_proxy = mode == "manual" || mode == "resolved";
         let mut response = client
             .execute(built)
