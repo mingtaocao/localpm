@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type PointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 export type RequestDiagnostic = {
@@ -47,6 +47,12 @@ export type ConsoleEntry = {
 };
 
 type Filter = "all" | "http" | "network";
+const CONSOLE_HEIGHT_KEY = "localpm-console-height";
+const DEFAULT_CONSOLE_HEIGHT = 260;
+
+function clampConsoleHeight(height: number) {
+  return Math.min(Math.max(height, 180), Math.max(180, window.innerHeight - 220));
+}
 
 export function ConsolePanel({
   entries,
@@ -59,6 +65,32 @@ export function ConsolePanel({
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState(false);
+  const [height, setHeight] = useState(() => {
+    const saved = Number(window.localStorage.getItem(CONSOLE_HEIGHT_KEY));
+    return clampConsoleHeight(saved > 0 ? saved : DEFAULT_CONSOLE_HEIGHT);
+  });
+  const [dragging, setDragging] = useState(false);
+  const setSavedHeight = (nextHeight: number) => {
+    const clamped = clampConsoleHeight(nextHeight);
+    setHeight(clamped);
+    window.localStorage.setItem(CONSOLE_HEIGHT_KEY, String(clamped));
+  };
+  const onResizeStart = (event: PointerEvent<HTMLDivElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragging(true);
+    setExpanded(false);
+  };
+  const onResizeMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      setHeight(clampConsoleHeight(window.innerHeight - event.clientY));
+    }
+  };
+  const onResizeEnd = (event: PointerEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    setDragging(false);
+    setSavedHeight(window.innerHeight - event.clientY);
+  };
   const visible = useMemo(
     () => entries.filter((entry) => {
       if (filter === "http" && !(entry.status && entry.status >= 400)) return false;
@@ -71,7 +103,33 @@ export function ConsolePanel({
   );
 
   return (
-    <section className={`console ${expanded ? "console-expanded" : ""}`} aria-label={t("Console")}>
+    <section className={`console ${dragging ? "console-dragging" : ""}`} style={{ height: expanded ? "min(70vh, 760px)" : height, maxHeight: "calc(100vh - 220px)" }} aria-label={t("Console")}>
+      <div
+        className="console-resizer"
+        role="separator"
+        tabIndex={0}
+        aria-label={t("Resize console")}
+        aria-orientation="horizontal"
+        aria-valuemin={180}
+        aria-valuemax={Math.max(180, window.innerHeight - 220)}
+        aria-valuenow={expanded ? clampConsoleHeight(window.innerHeight * 0.7) : height}
+        onPointerDown={onResizeStart}
+        onPointerMove={onResizeMove}
+        onPointerUp={onResizeEnd}
+        onPointerCancel={onResizeEnd}
+        onDoubleClick={() => { setExpanded(false); setSavedHeight(DEFAULT_CONSOLE_HEIGHT); }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+            event.preventDefault();
+            setExpanded(false);
+            setSavedHeight(height + (event.key === "ArrowUp" ? 30 : -30));
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            setExpanded(false);
+            setSavedHeight(DEFAULT_CONSOLE_HEIGHT);
+          }
+        }}
+      />
       <div className="console-toolbar">
         <strong>{t("Console")}</strong>
         <input
