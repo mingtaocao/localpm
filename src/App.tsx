@@ -36,19 +36,10 @@ type Tab = {
 const DEFAULT_SIDEBAR_WIDTH = 266;
 const MIN_SIDEBAR_WIDTH = 210;
 const SIDEBAR_STORAGE_KEY = "local-postman.sidebar-width";
-const SENSITIVE_HEADERS = new Set([
-  "authorization",
-  "cookie",
-  "proxy-authorization",
-  "x-api-key",
-]);
 function consoleHeaders(headers: Pair[]): [string, string][] {
   return headers
     .filter((header) => header.enabled && header.key)
-    .map((header) => [
-      header.key,
-      SENSITIVE_HEADERS.has(header.key.toLowerCase()) ? "••••••" : header.value,
-    ]);
+    .map((header) => [header.key, header.value]);
 }
 function clampSidebarWidth(width: number) {
   return Math.min(
