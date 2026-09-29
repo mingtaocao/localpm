@@ -92,7 +92,9 @@ export default function App() {
     }).then((stop) => {
       if (disposed) stop();
       else unlisten = stop;
-    }).catch(fail);
+    }).catch(() => {
+      // Browser test bridges do not expose Tauri event subscriptions.
+    });
     return () => {
       disposed = true;
       unlisten?.();
