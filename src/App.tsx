@@ -834,7 +834,7 @@ export default function App() {
                   />
                   <p className="muted">
                     {tr(
-                      "Local Postman 0.2.0 · Local SQLite storage · No login · Scripts preserved, never executed.",
+                      "Local Postman 0.5.0 · Local SQLite storage · No login · Scripts preserved, never executed.",
                     )}
                   </p>
                 </>
