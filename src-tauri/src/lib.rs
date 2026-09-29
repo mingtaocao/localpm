@@ -149,7 +149,7 @@ async fn send_request(
     let ws = state.storage.load()?;
     let prepared = http::prepare(&ws, &request)?;
     let vars = prepared.vars.clone();
-    let result = state.http.execute(prepared, execution_id, app).await;
+    let result = state.http.execute_with_diagnostics(prepared, execution_id, Some(app)).await;
     state.storage.save_cookies(
         &*state
             .http
