@@ -249,5 +249,19 @@
   "cm.Control character": "控制字符",
   "Resize workspace panel": "调整工作区宽度",
   "Copy cURL": "复制 cURL",
-  "cURL copied.": "cURL 已复制。"
+  "cURL copied.": "cURL 已复制。",
+  "Console": "控制台",
+  "Filter console": "筛选控制台",
+  "All": "全部",
+  "Success": "成功",
+  "Errors": "错误",
+  "Clear": "清空",
+  "Failed": "失败",
+  "Request": "请求",
+  "Error": "错误",
+  "No request headers": "无请求头",
+  "No response headers": "无响应头",
+  "No console entries match this filter.": "没有符合当前筛选条件的记录。",
+  "consoleEntries_one": "%{count} 条记录",
+  "consoleEntries_other": "%{count} 条记录"
 }
