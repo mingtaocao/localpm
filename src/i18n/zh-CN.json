@@ -247,5 +247,7 @@
   "cm.Diagnostics": "诊断",
   "cm.No diagnostics": "无诊断信息",
   "cm.Control character": "控制字符",
-  "Resize workspace panel": "调整工作区宽度"
+  "Resize workspace panel": "调整工作区宽度",
+  "Copy cURL": "复制 cURL",
+  "cURL copied.": "cURL 已复制。"
 }
