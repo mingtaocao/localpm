@@ -249,5 +249,20 @@
   "cm.Control character": "Control character",
   "Resize workspace panel": "Resize workspace panel",
   "Copy cURL": "Copy cURL",
-  "cURL copied.": "cURL copied."
+  "cURL copied.": "cURL copied.",
+  "Console": "Console",
+  "Filter console": "Filter console",
+  "All": "All",
+  "Success": "Success",
+  "Errors": "Errors",
+  "Clear": "Clear",
+  "Failed": "Failed",
+  "Request": "Request",
+  "Error": "Error",
+  "No request headers": "No request headers",
+  "No response headers": "No response headers",
+  "No console entries match this filter.": "No console entries match this filter.",
+  "consoleEntries_one": "%{count} entry",
+  "consoleEntries_other": "%{count} entries",
+  "No requests sent this session.": "No requests sent this session."
 }
