@@ -640,17 +640,109 @@ footer span:last-child {
   margin-left: auto;
 }
 .console {
+  height: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
   background: var(--console-bg);
   color: var(--console-text);
-  height: 140px;
-  overflow: auto;
-  padding: 15px;
   font:
     11px ui-monospace,
     monospace;
 }
-.console div {
-  margin-bottom: 6px;
+.console-toolbar {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.console-toolbar strong {
+  font-family: inherit;
+  font-size: 12px;
+}
+.console-toolbar select,
+.console-toolbar button {
+  padding: 4px 8px;
+  font-size: 10px;
+}
+.console-toolbar span {
+  color: var(--muted);
+}
+.console-toolbar button {
+  margin-left: auto;
+}
+.console-list {
+  overflow: auto;
+  flex: 1;
+}
+.console-entry {
+  border-bottom: 1px solid var(--border);
+}
+.console-entry summary {
+  display: grid;
+  grid-template-columns: 82px 48px minmax(180px, 1fr) 70px 80px;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+.console-entry summary:hover {
+  background: var(--hover);
+}
+.console-entry time,
+.console-entry summary > span:last-child {
+  color: var(--muted);
+}
+.console-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.console-failed {
+  color: var(--error-text);
+}
+.console-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  padding: 10px 28px 16px;
+  background: var(--surface);
+}
+.console-details h4 {
+  margin: 8px 0;
+  color: var(--text);
+}
+.console-details p,
+.console-details ol {
+  word-break: break-all;
+  line-height: 1.6;
+}
+.console-headers {
+  margin: 0;
+}
+.console-headers > div {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.35fr) 1fr;
+  gap: 10px;
+  padding: 3px 0;
+}
+.console-headers dt {
+  color: var(--muted);
+}
+.console-headers dd {
+  margin: 0;
+  word-break: break-all;
+}
+.console-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--muted);
 }
 .welcome {
   margin: auto;
