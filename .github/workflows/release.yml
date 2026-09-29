@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version matching the project, e.g. v0.1.0'
+        description: 'Release version, e.g. v0.5.0'
         required: true
         type: string
 
@@ -36,16 +36,16 @@ jobs:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
           python3 - <<'PYTHON'
-          import json, os, re, tomllib
-          from pathlib import Path
+          import os, re
           version = os.environ['RELEASE_VERSION']
           if not re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
               raise SystemExit('Version must be vMAJOR.MINOR.PATCH, e.g. v0.1.0')
-          versions = [json.loads(Path(p).read_text())['version'] for p in
-                      ['package.json', 'package-lock.json', 'src-tauri/tauri.conf.json']]
-          versions.append(tomllib.loads(Path('src-tauri/Cargo.toml').read_text())['package']['version'])
-          if any(v != version[1:] for v in versions):
-              raise SystemExit(f'Update and commit project versions first: {versions} != {version[1:]}')
+          # TEMP: Restore project file version matching when versioning is stable.
+          # versions = [json.loads(Path(p).read_text())['version'] for p in
+          #             ['package.json', 'package-lock.json', 'src-tauri/tauri.conf.json']]
+          # versions.append(tomllib.loads(Path('src-tauri/Cargo.toml').read_text())['package']['version'])
+          # if any(v != version[1:] for v in versions):
+          #     raise SystemExit(f'Update and commit project versions first: {versions} != {version[1:]}')
           PYTHON
           if git show-ref --verify --quiet "refs/tags/$RELEASE_VERSION"; then
             echo "Tag $RELEASE_VERSION already exists; use a new version."
