@@ -14,11 +14,14 @@ import {
   type RequestSpec,
   type ResponseResult,
   type Pair,
+  type HistoryEntry,
 } from "./types";
 import { KeyValue } from "./components/KeyValue";
 import { Network } from "./components/Network";
 import { Auth } from "./components/Auth";
 import { CollectionTree } from "./components/CollectionTree";
+import { HistoryPanel } from "./components/HistoryPanel";
+import { requestToCurl } from "./utils/curl";
 type Tab = {
   request: RequestSpec;
   dirty: boolean;
@@ -51,7 +54,7 @@ export default function App() {
   const [section, setSection] = useState("Collections");
   const [editor, setEditor] = useState("Params");
   const [responseTab, setResponseTab] = useState("Pretty");
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
   const [search, setSearch] = useState("");
@@ -580,36 +583,16 @@ export default function App() {
             </>
           )}
           {section === "History" && (
-            <div className="history-list">
-              <button
-                onClick={() =>
-                  void api
-                    .clearHistory()
-                    .then(() => setHistory([]))
-                    .catch(fail)
-                }
-              >
-                {tr("Clear history")}
-              </button>
-              {history.map((h) => (
-                <button
-                  key={h.id}
-                  className="history-item"
-                  onClick={() =>
-                    openRequest({
-                      ...h.snapshot,
-                      id: crypto.randomUUID(),
-                      name: tr("History · %{name}", { name: h.snapshot.name }),
-                    })
-                  }
-                >
-                  <span className="method">{h.snapshot.method}</span>
-                  <b>{h.response.status ?? h.response.error?.code}</b>
-                  <span>{h.snapshot.url}</span>
-                  <small>{h.time}</small>
-                </button>
-              ))}
-            </div>
+            <HistoryPanel
+              history={history}
+              onClear={() =>
+                void api
+                  .clearHistory()
+                  .then(() => setHistory([]))
+                  .catch(fail)
+              }
+              onOpen={openRequest}
+            />
           )}
         </aside>
         <div
@@ -955,6 +938,16 @@ export default function App() {
                       </button>
                     </>
                   )}
+                  <button
+                    onClick={() =>
+                      void navigator.clipboard
+                        .writeText(requestToCurl(r))
+                        .then(() => setNotice("cURL copied."))
+                        .catch(fail)
+                    }
+                  >
+                    {tr("Copy cURL")}
+                  </button>
                   <button
                     onClick={() =>
                       void api

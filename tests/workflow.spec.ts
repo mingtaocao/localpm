@@ -103,6 +103,13 @@ test("full UI workflow using real Rust HTTP and SQLite, including backend restar
     );
     await page.getByRole("button", { name: "History", exact: true }).click();
     await expect(page.locator(".history-item")).toHaveCount(2);
+    const firstHistory = page.locator(".history-item").first();
+    await expect(firstHistory).toBeVisible();
+    await expect(firstHistory).toHaveCSS("opacity", "1");
+    expect(
+      await firstHistory.evaluate((element) => getComputedStyle(element).color),
+    ).not.toBe("rgba(0, 0, 0, 0)");
+    await page.screenshot({ path: "artifacts/history-sidebar-visibility.png" });
     await page.getByRole("button", { name: "⚙ Settings" }).click();
     await page
       .getByRole("combobox", { name: "Proxy", exact: true })

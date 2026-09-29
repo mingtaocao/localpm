@@ -4,6 +4,8 @@ pub mod postman;
 pub mod security;
 pub mod storage;
 pub mod variables;
+#[cfg(target_os = "windows")]
+pub mod windows_proxy;
 use domain::*;
 use serde_json::{json, Value};
 use tauri::Manager;

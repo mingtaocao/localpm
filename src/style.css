@@ -862,3 +862,49 @@ nav button {
   background: #fff;
   color-scheme: light;
 } /* Server HTML is unmodified user content. */
+
+
+/* Visibility contract: native WebViews must not infer control colors. */
+.app,
+.shell,
+main,
+.panel,
+.response {
+  color: var(--text);
+  background-color: var(--surface);
+}
+aside,
+nav,
+.workspace-title,
+.history-list {
+  color: var(--text);
+  background-color: var(--sidebar);
+}
+.tree-item,
+.collection,
+.history-item,
+.subtle,
+.sidebar-tools button,
+.sidebar-bottom button,
+.request-tabs button,
+.editor-tabs button {
+  color: var(--text);
+}
+.history-item b,
+.history-item span,
+.history-item small,
+.tree-item span,
+.collection span {
+  visibility: visible;
+}
+.history-item,
+.tree-item,
+.collection {
+  opacity: 1;
+}
+.cm-editor,
+.cm-content,
+.cm-gutters {
+  color: var(--text);
+  background-color: var(--surface);
+}
