@@ -263,5 +263,6 @@
   "No response headers": "No response headers",
   "No console entries match this filter.": "No console entries match this filter.",
   "consoleEntries_one": "%{count} entry",
-  "consoleEntries_other": "%{count} entries"
+  "consoleEntries_other": "%{count} entries",
+  "No requests sent this session.": "No requests sent this session."
 }
