@@ -114,9 +114,7 @@ export function ConsolePanel({
           <div className="console-empty">
             {entries.length
               ? t("No console entries match this filter.")
-              : t(
-                  "No requests sent this session. Credentials are never logged.",
-                )}
+              : t("No requests sent this session.")}
           </div>
         )}
       </div>
