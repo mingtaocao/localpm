@@ -142,13 +142,14 @@ fn preview_request(state: tauri::State<AppState>, request: RequestSpec) -> Resul
 #[tauri::command]
 async fn send_request(
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
     request: RequestSpec,
     execution_id: String,
 ) -> Result<Response> {
     let ws = state.storage.load()?;
     let prepared = http::prepare(&ws, &request)?;
     let vars = prepared.vars.clone();
-    let result = state.http.execute(prepared, execution_id).await;
+    let result = state.http.execute(prepared, execution_id, app).await;
     state.storage.save_cookies(
         &*state
             .http
