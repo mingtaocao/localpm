@@ -224,6 +224,27 @@ pub fn bypass(host: &str, patterns: &str) -> bool {
             regex::Regex::new(&format!("(?i)^{escaped}$")).is_ok_and(|r| r.is_match(host))
         })
 }
+
+fn effective_proxy(
+    configured_mode: &str,
+    url: &str,
+    bypassed: bool,
+) -> (String, Option<String>) {
+    if bypassed || configured_mode == "off" {
+        return ("off".into(), None);
+    }
+    #[cfg(target_os = "windows")]
+    if configured_mode == "system" {
+        return match crate::windows_proxy::resolve(url) {
+            Some(crate::windows_proxy::SystemProxy::Direct) => ("off".into(), None),
+            Some(crate::windows_proxy::SystemProxy::Proxy(address)) => {
+                ("resolved".into(), Some(address))
+            }
+            None => ("system".into(), None),
+        };
+    }
+    (configured_mode.into(), None)
+}
 fn map_error(e: reqwest::Error, proxy: bool) -> AppError {
     let code = if e.is_timeout() {
         "REQUEST_TIMEOUT"
@@ -268,18 +289,17 @@ impl HttpEngine {
             .to_string();
         let proxy = &p.settings["proxy"];
         let bypassed = bypass(&host, proxy["noProxy"].as_str().unwrap_or_default());
-        let mode = if bypassed {
-            "off"
-        } else {
-            proxy["mode"].as_str().unwrap_or("off")
-        };
+        let configured_mode = proxy["mode"].as_str().unwrap_or("off");
+        let (mode, resolved_proxy) =
+            effective_proxy(configured_mode, &p.url, bypassed);
         let key = format!(
-            "{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{:?}",
             p.settings["verifyTls"],
             p.settings["followRedirect"],
             p.settings["caFile"],
             mode,
-            proxy
+            proxy,
+            resolved_proxy
         );
         let mut clients = self.clients.lock().unwrap();
         if let Some(c) = clients.get(&key) {
@@ -295,21 +315,26 @@ impl HttpEngine {
             });
         if mode == "off" {
             builder = builder.no_proxy()
-        } else if mode == "manual" {
-            let address = proxy["url"].as_str().unwrap_or_default();
+        } else if mode == "manual" || mode == "resolved" {
+            let address = resolved_proxy
+                .as_deref()
+                .or_else(|| proxy["url"].as_str())
+                .unwrap_or_default();
             let mut px = reqwest::Proxy::all(address)
                 .map_err(|_| AppError::new("INVALID_PROXY", "Invalid proxy URL"))?;
-            if let Some(user) = proxy["username"].as_str().filter(|u| !u.is_empty()) {
-                let password = if let Some(r) = proxy["secretRef"].as_str() {
-                    keyring::Entry::new("LocalPostman", r)
-                        .and_then(|e| e.get_password())
-                        .map_err(|_| {
-                            AppError::new("SECRET_UNAVAILABLE", "Proxy password unavailable")
-                        })?
-                } else {
-                    String::new()
-                };
-                px = px.basic_auth(user, &password)
+            if mode == "manual" {
+                if let Some(user) = proxy["username"].as_str().filter(|u| !u.is_empty()) {
+                    let password = if let Some(r) = proxy["secretRef"].as_str() {
+                        keyring::Entry::new("LocalPostman", r)
+                            .and_then(|e| e.get_password())
+                            .map_err(|_| {
+                                AppError::new("SECRET_UNAVAILABLE", "Proxy password unavailable")
+                            })?
+                    } else {
+                        String::new()
+                    };
+                    px = px.basic_auth(user, &password)
+                }
             }
             builder = builder.no_proxy().proxy(px)
         }
