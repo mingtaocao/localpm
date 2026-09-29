@@ -242,13 +242,21 @@ fn effective_proxy(configured_mode: &str, _url: &str, bypassed: bool) -> (String
     (configured_mode.into(), None)
 }
 fn map_error(e: reqwest::Error, proxy: bool) -> AppError {
+    let detail = e.to_string();
+    let lower = detail.to_lowercase();
     let code = if e.is_timeout() {
         "REQUEST_TIMEOUT"
     } else if e.is_connect() {
-        if proxy {
-            "PROXY_CONNECT_FAILED"
-        } else if e.to_string().to_lowercase().contains("certificate") {
+        if lower.contains("dns error")
+            || lower.contains("failed to lookup address")
+            || lower.contains("no such host")
+            || lower.contains("name or service not known")
+        {
+            "DNS_RESOLVE_FAILED"
+        } else if lower.contains("certificate") {
             "TLS_ERROR"
+        } else if proxy {
+            "PROXY_CONNECT_FAILED"
         } else {
             "CONNECT_FAILED"
         }
@@ -257,16 +265,7 @@ fn map_error(e: reqwest::Error, proxy: bool) -> AppError {
     } else {
         "BODY_READ_FAILED"
     };
-    AppError::new(
-        code,
-        match code {
-            "REQUEST_TIMEOUT" => "Request timed out",
-            "TLS_ERROR" => "TLS certificate verification failed",
-            "PROXY_CONNECT_FAILED" => "Could not connect through proxy",
-            "CONNECT_FAILED" => "Could not connect to server",
-            _ => "HTTP request failed",
-        },
-    )
+    AppError::new(code, format!("{code}: {detail}"))
 }
 impl HttpEngine {
     pub fn new(temp: PathBuf) -> Self {
@@ -277,16 +276,13 @@ impl HttpEngine {
             temp,
         }
     }
-    fn client(&self, p: &PreparedRequest) -> Result<Client> {
-        let host = url::Url::parse(&p.url)
-            .unwrap()
-            .host_str()
-            .unwrap_or_default()
-            .to_string();
+    fn client(
+        &self,
+        p: &PreparedRequest,
+        mode: &str,
+        resolved_proxy: Option<&str>,
+    ) -> Result<Client> {
         let proxy = &p.settings["proxy"];
-        let bypassed = bypass(&host, proxy["noProxy"].as_str().unwrap_or_default());
-        let configured_mode = proxy["mode"].as_str().unwrap_or("off");
-        let (mode, resolved_proxy) = effective_proxy(configured_mode, &p.url, bypassed);
         let key = format!(
             "{}|{}|{}|{}|{}|{:?}",
             p.settings["verifyTls"],
@@ -312,7 +308,6 @@ impl HttpEngine {
             builder = builder.no_proxy()
         } else if mode == "manual" || mode == "resolved" {
             let address = resolved_proxy
-                .as_deref()
                 .or_else(|| proxy["url"].as_str())
                 .unwrap_or_default();
             let mut px = reqwest::Proxy::all(address)
@@ -356,19 +351,41 @@ impl HttpEngine {
         }
     }
     pub async fn execute(&self, p: PreparedRequest, execution_id: String) -> Result<Response> {
+        self.execute_with_diagnostics(p, execution_id, None).await
+    }
+
+    pub async fn execute_with_diagnostics(
+        &self,
+        p: PreparedRequest,
+        execution_id: String,
+        diagnostic: Option<&(dyn Fn(Value) + Send + Sync)>,
+    ) -> Result<Response> {
         let token = CancellationToken::new();
         self.cancellations
             .lock()
             .unwrap()
             .insert(execution_id.clone(), token.clone());
         let timeout = p.settings["timeout"].as_u64().unwrap_or(30000).max(1);
-        let result = tokio::select! {_ = token.cancelled()=>Err(AppError::new("REQUEST_CANCELLED","Request cancelled")), result=tokio::time::timeout(Duration::from_millis(timeout),self.perform(&p,&execution_id))=>result.unwrap_or_else(|_|Err(AppError::new("REQUEST_TIMEOUT","Request timed out")))};
+        let result = tokio::select! {_ = token.cancelled()=>Err(AppError::new("REQUEST_CANCELLED","Request cancelled")), result=tokio::time::timeout(Duration::from_millis(timeout),self.perform(&p,&execution_id,diagnostic))=>result.unwrap_or_else(|_|Err(AppError::new("REQUEST_TIMEOUT","Request timed out")))};
         self.cancellations.lock().unwrap().remove(&execution_id);
         result
     }
-    async fn perform(&self, p: &PreparedRequest, id: &str) -> Result<Response> {
+    async fn perform(
+        &self,
+        p: &PreparedRequest,
+        id: &str,
+        diagnostic: Option<&(dyn Fn(Value) + Send + Sync)>,
+    ) -> Result<Response> {
         let started = Instant::now();
-        let client = self.client(p)?;
+        let host = url::Url::parse(&p.url)
+            .ok()
+            .and_then(|url| url.host_str().map(str::to_string))
+            .unwrap_or_default();
+        let proxy = &p.settings["proxy"];
+        let bypassed = bypass(&host, proxy["noProxy"].as_str().unwrap_or_default());
+        let configured_mode = proxy["mode"].as_str().unwrap_or("off");
+        let (mode, resolved_proxy) = effective_proxy(configured_mode, &p.url, bypassed);
+        let client = self.client(p, &mode, resolved_proxy.as_deref())?;
         let method = reqwest::Method::from_bytes(p.request.method.as_bytes())
             .map_err(|_| AppError::new("INVALID_METHOD", "Invalid HTTP method"))?;
         let mut rq = client.request(method, &p.url);
@@ -474,8 +491,46 @@ impl HttpEngine {
             }
             _ => {}
         }
-        let manual = p.settings["proxy"]["mode"] == "manual";
-        let mut response = rq.send().await.map_err(|e| map_error(e, manual))?;
+        // Inspect the request after reqwest has added body-related headers.
+        // Streaming bodies and client-injected cookies are reported separately below.
+        let built = rq.build().map_err(|e| map_error(e, false))?;
+        let request_headers: Vec<(String, String)> = built
+            .headers()
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("<binary>").to_string()))
+            .collect();
+        let body_bytes = built.body().and_then(|body| body.as_bytes());
+        let body_size = body_bytes.map(|bytes| bytes.len());
+        let body_preview = body_bytes.map(|bytes| {
+            String::from_utf8_lossy(&bytes[..bytes.len().min(64 * 1024)]).into_owned()
+        });
+        let route = match mode.as_str() {
+            "off" => "direct",
+            "manual" => "manual proxy",
+            "resolved" => "system PAC proxy",
+            _ => "system proxy (automatic)",
+        };
+        if let Some(emit) = diagnostic {
+            emit(json!({
+            "id": id,
+            "method": built.method().as_str(),
+            "url": built.url().as_str(),
+            "headers": request_headers,
+            "bodyPreview": body_preview,
+            "bodySize": body_size,
+            "bodyMode": p.body["mode"],
+            "proxyMode": route,
+            "proxyUrl": if mode == "resolved" { resolved_proxy.as_deref() } else if mode == "manual" { proxy["url"].as_str() } else { None },
+            "proxyBypassed": bypassed,
+            "timeout": p.settings["timeout"].as_u64().unwrap_or(30000),
+            "verifyTls": p.settings["verifyTls"] != false,
+            }));
+        }
+        let through_proxy = mode == "manual" || mode == "resolved";
+        let mut response = client
+            .execute(built)
+            .await
+            .map_err(|e| map_error(e, through_proxy))?;
         let status = response.status();
         if status.as_u16() == 407 {
             return Err(AppError::new(
@@ -509,7 +564,11 @@ impl HttpEngine {
             .map_err(|_| AppError::new("BODY_READ_FAILED", "Cannot cache response"))?;
         let mut preview = vec![];
         let mut size = 0;
-        while let Some(chunk) = response.chunk().await.map_err(|e| map_error(e, manual))? {
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|e| map_error(e, through_proxy))?
+        {
             size += chunk.len();
             file.write_all(&chunk)
                 .await
