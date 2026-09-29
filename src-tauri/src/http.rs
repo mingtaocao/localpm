@@ -225,17 +225,13 @@ pub fn bypass(host: &str, patterns: &str) -> bool {
         })
 }
 
-fn effective_proxy(
-    configured_mode: &str,
-    url: &str,
-    bypassed: bool,
-) -> (String, Option<String>) {
+fn effective_proxy(configured_mode: &str, _url: &str, bypassed: bool) -> (String, Option<String>) {
     if bypassed || configured_mode == "off" {
         return ("off".into(), None);
     }
     #[cfg(target_os = "windows")]
     if configured_mode == "system" {
-        return match crate::windows_proxy::resolve(url) {
+        return match crate::windows_proxy::resolve(_url) {
             Some(crate::windows_proxy::SystemProxy::Direct) => ("off".into(), None),
             Some(crate::windows_proxy::SystemProxy::Proxy(address)) => {
                 ("resolved".into(), Some(address))
@@ -290,8 +286,7 @@ impl HttpEngine {
         let proxy = &p.settings["proxy"];
         let bypassed = bypass(&host, proxy["noProxy"].as_str().unwrap_or_default());
         let configured_mode = proxy["mode"].as_str().unwrap_or("off");
-        let (mode, resolved_proxy) =
-            effective_proxy(configured_mode, &p.url, bypassed);
+        let (mode, resolved_proxy) = effective_proxy(configured_mode, &p.url, bypassed);
         let key = format!(
             "{}|{}|{}|{}|{}|{:?}",
             p.settings["verifyTls"],

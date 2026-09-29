@@ -156,10 +156,7 @@ mod imp {
         result
     }
 
-    fn resolve_with_config(
-        url: &str,
-        config: &CurrentUserProxyConfig,
-    ) -> Option<SystemProxy> {
+    fn resolve_with_config(url: &str, config: &CurrentUserProxyConfig) -> Option<SystemProxy> {
         let has_pac = !config.auto_config_url.is_null();
         if config.auto_detect == 0 && !has_pac {
             return None;
@@ -203,9 +200,8 @@ mod imp {
             proxy_bypass: ptr::null_mut(),
         };
         let target = wide(url);
-        let ok = unsafe {
-            WinHttpGetProxyForUrl(session, target.as_ptr(), &mut options, &mut info)
-        };
+        let ok =
+            unsafe { WinHttpGetProxyForUrl(session, target.as_ptr(), &mut options, &mut info) };
         unsafe {
             let _ = WinHttpCloseHandle(session);
         }
