@@ -53,6 +53,19 @@ export type Workspace = {
   settings: any;
   activeEnvironment: string | null;
 };
+export type HistoryResponse = {
+  status?: number;
+  duration?: number;
+  size?: number;
+  body?: string;
+  error?: { code?: string; message?: string };
+};
+export type HistoryEntry = {
+  id: number;
+  time: string;
+  snapshot: RequestSpec;
+  response: HistoryResponse;
+};
 export type ResponseResult = {
   status: number;
   statusText: string;
