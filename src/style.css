@@ -1079,4 +1079,7 @@ nav,
     grid-template-columns: minmax(0, 1fr);
   }
 }
-\n.console-expanded { height: min(70vh, 760px); }\n.console-toolbar button { margin-left: 0; }\n.console-toolbar input { margin-left: auto; }\n
+
+.console-expanded { height: min(70vh, 760px); }
+.console-toolbar button { margin-left: 0; }
+.console-toolbar input { margin-left: auto; }
