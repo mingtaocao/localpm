@@ -28,12 +28,16 @@ import {
   type RequestDiagnostic,
 } from "./components/ConsolePanel";
 import { requestToCurl } from "./utils/curl";
+import { Icon } from "./components/Icon";
+import { MoreMenu } from "./components/MoreMenu";
 type Tab = {
   request: RequestSpec;
   dirty: boolean;
   response?: ResponseResult;
+  responseContext?: { time: string; environment: string; url: string };
   execution?: string;
   error?: unknown;
+  saveState?: "saving" | "draft" | "saved" | "failed";
 };
 const DEFAULT_SIDEBAR_WIDTH = 266;
 const MIN_SIDEBAR_WIDTH = 210;
@@ -55,11 +59,16 @@ export default function App() {
     error: storeError,
   } = useWorkspace();
   const [tabs, setTabs] = useState<Tab[]>([]);
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
   const [active, setActive] = useState("");
   const [selected, setSelected] = useState("");
+  const [editedEnvironmentId, setEditedEnvironmentId] = useState("");
   const [section, setSection] = useState("Collections");
-  const [editor, setEditor] = useState("Params");
+  const [editor, setEditor] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [responseTab, setResponseTab] = useState("Pretty");
+  const [responseFormat, setResponseFormat] = useState("Pretty");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
@@ -69,6 +78,19 @@ export default function App() {
   const [cookies, setCookies] = useState<any[]>([]);
   const [preview, setPreview] = useState<any>(null);
   const [topHeight, setTopHeight] = useState(340);
+  const mainRef = useRef<HTMLElement>(null);
+  const [mainHeight, setMainHeight] = useState(window.innerHeight - 52);
+  useEffect(() => {
+    if (!mainRef.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setMainHeight(entry.contentRect.height);
+    });
+    observer.observe(mainRef.current);
+    return () => observer.disconnect();
+  }, [w !== null]);
+  const tabHeight = tabs.length > 1 ? 38 : 0;
+  const maxEditorHeight = Math.max(220, mainHeight - tabHeight - 5 - 140);
+  const editorHeight = Math.min(topHeight, maxEditorHeight);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = Number(localStorage.getItem(SIDEBAR_STORAGE_KEY));
     return clampSidebarWidth(
@@ -85,16 +107,23 @@ export default function App() {
       setConsoleEntries((entries) =>
         entries.map((entry) =>
           entry.id === payload.id
-            ? { ...entry, ...payload, requestHeaders: payload.headers, prepared: true }
+            ? {
+                ...entry,
+                ...payload,
+                requestHeaders: payload.headers,
+                prepared: true,
+              }
             : entry,
         ),
       );
-    }).then((stop) => {
-      if (disposed) stop();
-      else unlisten = stop;
-    }).catch(() => {
-      // Browser test bridges do not expose Tauri event subscriptions.
-    });
+    })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {
+        // Browser test bridges do not expose Tauri event subscriptions.
+      });
     return () => {
       disposed = true;
       unlisten?.();
@@ -108,6 +137,16 @@ export default function App() {
     (c) => c.id === (selectedItem?.collectionId ?? selected),
   );
   const environment = w?.environments.find((e) => e.id === w.activeEnvironment);
+  const editedEnvironment = w?.environments.find(
+    (e) => e.id === editedEnvironmentId,
+  );
+  const requestItem = w?.items.find((i) => i.request?.id === r?.id);
+  const requestCollection = w?.collections.find(
+    (c) => c.id === requestItem?.collectionId,
+  );
+  const consoleProblems = consoleEntries.filter(
+    (entry) => entry.error || (entry.status ?? 0) >= 400,
+  ).length;
   const fail = (e: any) => setError(e);
   useEffect(() => {
     api
@@ -119,6 +158,10 @@ export default function App() {
           setTabs(b.drafts.map((request) => ({ request, dirty: true })));
           setActive(b.drafts[0].id);
           setNotice("Recovered unsaved drafts.");
+        } else {
+          const request = newRequest();
+          setTabs([{ request, dirty: false }]);
+          setActive(request.id);
         }
       })
       .catch(fail);
@@ -126,14 +169,44 @@ export default function App() {
   const updateTab = (id: string, p: Partial<Tab>) =>
     setTabs((ts) => ts.map((t) => (t.request.id === id ? { ...t, ...p } : t)));
   const edit = (p: Partial<RequestSpec>) => {
-    if (r) updateTab(r.id, { request: { ...r, ...p }, dirty: true });
+    if (r)
+      updateTab(r.id, {
+        request: { ...r, ...p },
+        dirty: true,
+        saveState: undefined,
+      });
   };
   useEffect(() => {
     if (!tab?.dirty) return;
-    const t = setTimeout(
-      () => api.draft(tab.request.id, tab.request).catch(fail),
-      500,
+    const request = tab.request;
+    const storedInCollection = !!w?.items.some(
+      (i) => i.request?.id === request.id,
     );
+    const t = setTimeout(() => {
+      if (!storedInCollection) updateTab(request.id, { saveState: "saving" });
+      void api
+        .draft(request.id, request)
+        .then(() => {
+          if (!storedInCollection)
+            setTabs((ts) =>
+              ts.map((t) =>
+                t.request === request && t.dirty
+                  ? { ...t, saveState: "draft" }
+                  : t,
+              ),
+            );
+        })
+        .catch((e) => {
+          setTabs((ts) =>
+            ts.map((t) =>
+              t.request === request && t.dirty
+                ? { ...t, saveState: "failed" }
+                : t,
+            ),
+          );
+          fail(e);
+        });
+    }, 500);
     return () => clearTimeout(t);
   }, [tab?.request, tab?.dirty]);
   const save = async () => {
@@ -159,10 +232,26 @@ export default function App() {
         metadata: null,
       });
     }
-    await persist({ ...w, items });
-    await api.draft(r.id, null);
-    updateTab(r.id, { dirty: false });
-    setNotice("Request saved locally.");
+    updateTab(r.id, { saveState: "saving" });
+    try {
+      await persist({ ...w, items });
+      // Editing can continue while persistence is in flight. Preserve any newer draft.
+      const current = tabsRef.current.find((t) => t.request.id === r.id);
+      await api.draft(
+        r.id,
+        current && current.request !== r ? current.request : null,
+      );
+      setTabs((ts) =>
+        ts.map((t) =>
+          t.request === r ? { ...t, dirty: false, saveState: "saved" } : t,
+        ),
+      );
+    } catch (e) {
+      setTabs((ts) =>
+        ts.map((t) => (t.request === r ? { ...t, saveState: "failed" } : t)),
+      );
+      throw e;
+    }
   };
   useEffect(() => {
     if (!tab?.dirty || !r || !w?.items.some((i) => i.request?.id === r.id))
@@ -172,14 +261,26 @@ export default function App() {
   }, [r, tab?.dirty]);
   const openRequest = (request: RequestSpec) => {
     if (!tabs.some((t) => t.request.id === request.id))
-      setTabs((ts) => [...ts, { request, dirty: false }]);
+      setTabs((ts) => [
+        ...ts.filter(
+          (t) =>
+            t.dirty ||
+            t.response ||
+            t.execution ||
+            t.request.url ||
+            w?.items.some((i) => i.request?.id === t.request.id),
+        ),
+        { request, dirty: false },
+      ]);
     setActive(request.id);
+    setEditor("");
     setModal("");
   };
   const newTab = () => {
     const request = newRequest();
     setTabs((ts) => [...ts, { request, dirty: true }]);
     setActive(request.id);
+    setEditor("");
     setModal("");
   };
   const closeTab = async (id: string) => {
@@ -187,14 +288,17 @@ export default function App() {
     if (t?.dirty) await api.draft(id, t.request);
     if (t?.execution) await api.cancel(t.execution);
     setTabs((ts) => ts.filter((t) => t.request.id !== id));
-    if (active === id)
+    if (active === id) {
       setActive(tabs.find((t) => t.request.id !== id)?.request.id ?? "");
+      setEditor("");
+    }
   };
   const send = async () => {
-    if (!r || !w) return;
+    if (!r || !w || tab?.execution) return;
     const id = crypto.randomUUID();
     const started = performance.now();
     const request = structuredClone(r);
+    const sentEnvironment = environment?.name ?? tr("No environment");
     const baseEntry: ConsoleEntry = {
       id,
       time: new Date().toLocaleTimeString(),
@@ -206,12 +310,24 @@ export default function App() {
       phase: "pending",
     };
     setConsoleEntries((entries) => [baseEntry, ...entries].slice(0, 100));
-    updateTab(r.id, { execution: id, error: undefined });
+    updateTab(r.id, {
+      execution: id,
+      error: undefined,
+      response: undefined,
+      responseContext: undefined,
+    });
     try {
       if (w.collections.length) await save();
       else await persist(w);
       const result = await api.send(request, id);
-      updateTab(r.id, { response: result });
+      updateTab(r.id, {
+        response: result,
+        responseContext: {
+          time: new Date().toLocaleTimeString(),
+          environment: sentEnvironment,
+          url: request.url,
+        },
+      });
       setConsoleEntries((entries) =>
         entries.map((entry) =>
           entry.id === id
@@ -224,7 +340,8 @@ export default function App() {
                 size: result.size,
                 responseHeaders: result.headers,
                 responseBody: result.body.slice(0, 64 * 1024),
-                responseTruncated: result.truncated || result.body.length > 64 * 1024,
+                responseTruncated:
+                  result.truncated || result.body.length > 64 * 1024,
                 responseBinary: result.binary,
                 finalUrl: result.finalUrl,
                 redirects: result.redirects,
@@ -242,14 +359,14 @@ export default function App() {
                 phase: "error",
                 duration: Math.round(performance.now() - started),
                 error: formatError(e),
-                errorDetail: e && typeof e === "object" && "message" in e
-                  ? String(e.message)
-                  : String(e),
+                errorDetail:
+                  e && typeof e === "object" && "message" in e
+                    ? String(e.message)
+                    : String(e),
               }
             : entry,
         ),
       );
-      setConsoleOpen(true);
     } finally {
       updateTab(r.id, { execution: undefined });
       api.history().then(setHistory).catch(fail);
@@ -281,7 +398,11 @@ export default function App() {
         if (key === "s") void save().catch(fail);
         if (key === "n") newTab();
         if (key === "w" && active) void closeTab(active);
-        if (key === "k") searchRef.current?.focus();
+        if (key === "k") {
+          setSidebarOpen(true);
+          setSection("Collections");
+          requestAnimationFrame(() => searchRef.current?.focus());
+        }
         if (key === ",") setModal("Settings");
         if (e.shiftKey && key === "i") void importFile();
       }
@@ -367,20 +488,26 @@ export default function App() {
     setSelected("");
     setModal("");
   };
-  const duplicate = async () => {
+  const duplicate = async (itemId = selected, currentRequest?: RequestSpec) => {
     if (!w) return;
-    if (!selectedItem && collection) {
+    const duplicateItem = w.items.find((i) => i.id === itemId);
+    const duplicateCollection = w.collections.find(
+      (c) => c.id === (duplicateItem?.collectionId ?? itemId),
+    );
+    if (!duplicateItem && duplicateCollection) {
       const id = crypto.randomUUID();
-      const source = w.items.filter((i) => i.collectionId === collection.id);
+      const source = w.items.filter(
+        (i) => i.collectionId === duplicateCollection.id,
+      );
       const ids = new Map(source.map((i) => [i.id, crypto.randomUUID()]));
       await persist({
         ...w,
         collections: [
           ...w.collections,
           {
-            ...structuredClone(collection),
+            ...structuredClone(duplicateCollection),
             id,
-            name: tr("%{name} copy", { name: collection.name }),
+            name: tr("%{name} copy", { name: duplicateCollection.name }),
           },
         ],
         items: [
@@ -398,21 +525,28 @@ export default function App() {
       });
       return;
     }
-    if (!selectedItem) return;
-    const source = [selectedItem];
+    if (!duplicateItem) return;
+    const source = [duplicateItem];
     for (let n = 0; n < source.length; n++)
       source.push(...w.items.filter((i) => i.parentId === source[n].id));
     const ids = new Map(source.map((i) => [i.id, crypto.randomUUID()]));
-    const copied = source.map((i, n) => ({
-      ...structuredClone(i),
-      id: ids.get(i.id)!,
-      parentId: n === 0 ? i.parentId : ids.get(i.parentId!)!,
-      name: n === 0 ? tr("%{name} copy", { name: i.name }) : i.name,
-      order: i.order + 0.5,
-      request: i.request
-        ? { ...structuredClone(i.request), id: crypto.randomUUID() }
-        : null,
-    }));
+    const copied = source.map((i, n) => {
+      const request = n === 0 && currentRequest ? currentRequest : i.request;
+      const name =
+        n === 0
+          ? tr("%{name} copy", { name: currentRequest?.name ?? i.name })
+          : i.name;
+      return {
+        ...structuredClone(i),
+        id: ids.get(i.id)!,
+        parentId: n === 0 ? i.parentId : ids.get(i.parentId!)!,
+        name,
+        order: i.order + 0.5,
+        request: request
+          ? { ...structuredClone(request), id: crypto.randomUUID(), name }
+          : null,
+      };
+    });
     await persist({ ...w, items: [...w.items, ...copied] });
   };
   const move = (source: string, target: string) => {
@@ -495,7 +629,7 @@ export default function App() {
           : {
               ...w,
               environments: w.environments.map((e) =>
-                e.id === environment?.id ? { ...e, variables: rows } : e,
+                e.id === editedEnvironment?.id ? { ...e, variables: rows } : e,
               ),
             },
     ).catch(fail);
@@ -515,14 +649,13 @@ export default function App() {
     void persist({
       ...w,
       environments: w.environments.map((e) =>
-        e.id === environment?.id ? { ...e, ...p } : e,
+        e.id === editedEnvironment?.id ? { ...e, ...p } : e,
       ),
     }).catch(fail);
   const createEnvironment = () => {
     const id = crypto.randomUUID();
     void persist({
       ...w,
-      activeEnvironment: id,
       environments: [
         ...w.environments,
         {
@@ -534,6 +667,7 @@ export default function App() {
         },
       ],
     }).catch(fail);
+    setEditedEnvironmentId(id);
     setModal("Environment");
   };
   let responseBody = tab?.response?.body ?? "";
@@ -546,15 +680,34 @@ export default function App() {
   }
   return (
     <div className="app">
-      <header>
-        <div className="brand">
-          <span className="brand-icon">{tr("LP")}</span>
-          {tr("Local Postman")} <small>{tr("LOCAL WORKSPACE")}</small>
-        </div>
+      <header className="app-header">
+        <button
+          className="icon-button"
+          aria-label={tr(sidebarOpen ? "Hide requests" : "Show requests")}
+          aria-expanded={sidebarOpen}
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+        >
+          <Icon name="sidebar" />
+        </button>
+        {r ? (
+          <input
+            className="header-request-name"
+            aria-label={tr("Request name")}
+            value={r.name}
+            onChange={(e) => edit({ name: e.target.value })}
+          />
+        ) : (
+          <span className="header-request-name">{tr("Local Postman")}</span>
+        )}
+        <button
+          className="icon-button"
+          aria-label={tr("New request")}
+          title={tr("New request")}
+          onClick={newTab}
+        >
+          <Icon name="plus" />
+        </button>
         <div className="header-actions">
-          <span className="offline">
-            {tr("● All data stays on this device")}
-          </span>
           <select
             aria-label={tr("Active environment")}
             value={w.activeEnvironment ?? ""}
@@ -572,18 +725,21 @@ export default function App() {
               </option>
             ))}
           </select>
-          <button onClick={() => setModal("Settings")}>
-            {tr("⚙ Settings")}
+          <button
+            className="icon-button"
+            aria-label={tr("⚙ Settings")}
+            title={tr("Settings")}
+            onClick={() => setModal("Settings")}
+          >
+            <Icon name="settings" />
           </button>
         </div>
       </header>
       <div className={`shell ${resizingSidebar ? "resizing-sidebar" : ""}`}>
-        <aside style={{ width: sidebarWidth }}>
-          <div className="workspace-title">
-            {tr("My Workspace")}
-            <span>⌄</span>
-          </div>
+        <aside style={{ width: sidebarWidth }} hidden={!sidebarOpen}>
+          <div className="workspace-title">{tr("Requests")}</div>
           <input
+            hidden={section !== "Collections"}
             className="search"
             ref={searchRef}
             placeholder={tr("Search name or URL  ⌘K")}
@@ -641,11 +797,14 @@ export default function App() {
                   className="tree-item"
                   key={e.id}
                   onClick={() => {
-                    void persist({ ...w, activeEnvironment: e.id }).catch(fail);
+                    setEditedEnvironmentId(e.id);
                     setModal("Environment");
                   }}
                 >
                   ◇ {e.name}
+                  {w.activeEnvironment === e.id && (
+                    <small className="environment-active">{tr("Active")}</small>
+                  )}
                 </button>
               ))}
               <button className="subtle" onClick={() => setModal("Global")}>
@@ -668,6 +827,7 @@ export default function App() {
         </aside>
         <div
           className="sidebar-divider"
+          hidden={!sidebarOpen}
           role="separator"
           aria-label={tr("Resize workspace panel")}
           aria-orientation="vertical"
@@ -715,35 +875,35 @@ export default function App() {
           }}
           onLostPointerCapture={() => setResizingSidebar(false)}
         />
-        <main>
-          <div className="request-tabs">
-            {tabs.map((t) => (
-              <div
-                key={t.request.id}
-                className={active === t.request.id ? "tab active" : "tab"}
-              >
-                <button
-                  onClick={() => {
-                    setActive(t.request.id);
-                    setModal("");
-                  }}
+        <main ref={mainRef}>
+          {tabs.length > 1 && (
+            <div className="request-tabs">
+              {tabs.map((t) => (
+                <div
+                  key={t.request.id}
+                  className={active === t.request.id ? "tab active" : "tab"}
                 >
-                  <span className="method">{t.request.method}</span>{" "}
-                  {t.request.name}
-                  {t.dirty ? " •" : ""}
-                </button>
-                <button
-                  title={tr("Close tab (draft retained)")}
-                  onClick={() => void closeTab(t.request.id)}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-            <button aria-label={tr("New request")} onClick={newTab}>
-              ＋
-            </button>
-          </div>
+                  <button
+                    onClick={() => {
+                      setActive(t.request.id);
+                      setEditor("");
+                      setModal("");
+                    }}
+                  >
+                    <span className="method">{t.request.method}</span>{" "}
+                    {t.request.name}
+                    {t.dirty ? " •" : ""}
+                  </button>
+                  <button
+                    title={tr("Close tab (draft retained)")}
+                    onClick={() => void closeTab(t.request.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           {modal ? (
             <div className="panel">
               <div className="panel-heading">
@@ -907,12 +1067,34 @@ export default function App() {
                 </>
               )}
               {modal === "Environment" &&
-                (environment ? (
+                (editedEnvironment ? (
                   <>
+                    <div className="environment-status">
+                      <span>
+                        {tr("Sending environment: %{name}", {
+                          name: environment?.name ?? tr("No environment"),
+                        })}
+                      </span>
+                      <button
+                        disabled={w.activeEnvironment === editedEnvironment.id}
+                        onClick={() =>
+                          void persist({
+                            ...w,
+                            activeEnvironment: editedEnvironment.id,
+                          }).catch(fail)
+                        }
+                      >
+                        {tr(
+                          w.activeEnvironment === editedEnvironment.id
+                            ? "Active environment"
+                            : "Use environment",
+                        )}
+                      </button>
+                    </div>
                     <label className="form">
                       {tr("Name")}
                       <input
-                        value={environment.name}
+                        value={editedEnvironment.name}
                         onChange={(e) =>
                           patchEnvironment({ name: e.target.value })
                         }
@@ -920,17 +1102,17 @@ export default function App() {
                     </label>
                     <KeyValue
                       secrets
-                      rows={environment.variables}
+                      rows={editedEnvironment.variables}
                       onChange={(rows) => setVariables("Environment", rows)}
                     />
                     <Network
-                      value={environment.settings}
+                      value={editedEnvironment.settings}
                       onChange={(settings) => patchEnvironment({ settings })}
                     />
                     <button
                       onClick={() =>
                         void api
-                          .export(environment.id, "environment")
+                          .export(editedEnvironment.id, "environment")
                           .catch(fail)
                       }
                     >
@@ -963,17 +1145,22 @@ export default function App() {
                   </button>
                 </>
               )}
-              {modal === "Delete environment" && environment && (
+              {modal === "Delete environment" && editedEnvironment && (
                 <>
-                  <p>{tr("Delete “%{name}”?", { name: environment.name })}</p>
+                  <p>
+                    {tr("Delete “%{name}”?", { name: editedEnvironment.name })}
+                  </p>
                   <button
                     className="danger"
                     onClick={() => {
                       void persist({
                         ...w,
-                        activeEnvironment: null,
+                        activeEnvironment:
+                          w.activeEnvironment === editedEnvironment.id
+                            ? null
+                            : w.activeEnvironment,
                         environments: w.environments.filter(
-                          (e) => e.id !== environment.id,
+                          (e) => e.id !== editedEnvironment.id,
                         ),
                       }).catch(fail);
                       setModal("");
@@ -989,104 +1176,66 @@ export default function App() {
             </div>
           ) : r ? (
             <>
-              <section className="request-editor" style={{ height: topHeight }}>
-                <div className="request-title">
-                  <input
-                    aria-label={tr("Request name")}
-                    value={r.name}
-                    onChange={(e) => edit({ name: e.target.value })}
-                  />
-                  <button onClick={() => void save().catch(fail)}>
-                    {tr("Save ⌘S")}
-                  </button>
-                  {selectedItem?.request?.id === r.id && (
-                    <>
-                      <button onClick={() => void duplicate().catch(fail)}>
-                        {tr("Duplicate")}
-                      </button>
-                      <button onClick={() => setModal("Delete")}>
-                        {tr("Delete")}
-                      </button>
-                    </>
-                  )}
-                  <button
-                    onClick={() =>
-                      void navigator.clipboard
-                        .writeText(requestToCurl(r))
-                        .then(() => setNotice("cURL copied."))
-                        .catch(fail)
-                    }
-                  >
-                    {tr("Copy cURL")}
-                  </button>
-                  <button
-                    onClick={() =>
-                      void api
-                        .preview(r)
-                        .then((p) => {
-                          setPreview(p);
-                          setModal("Preview");
-                        })
-                        .catch(fail)
-                    }
-                  >
-                    {tr("Preview request")}
-                  </button>
-                </div>
+              <section
+                className={`request-editor ${editor ? "" : "collapsed"}`}
+                style={editor ? { height: editorHeight } : undefined}
+              >
                 <div className="url-bar">
-                  <input
-                    list="methods"
-                    className="method-select"
-                    aria-label={tr("HTTP method")}
-                    value={r.method}
-                    onChange={(e) =>
-                      edit({ method: e.target.value.toUpperCase() })
-                    }
-                  />
-                  <datalist id="methods">
-                    {[
-                      "GET",
-                      "POST",
-                      "PUT",
-                      "PATCH",
-                      "DELETE",
-                      "HEAD",
-                      "OPTIONS",
-                    ].map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </datalist>
-                  <input
-                    className="url-input"
-                    title={[
-                      ...w.globals.map((p) => ({ ...p, scope: "Global" })),
-                      ...(collection?.variables ?? []).map((p) => ({
-                        ...p,
-                        scope: "Collection",
-                      })),
-                      ...(environment?.variables ?? []).map((p) => ({
-                        ...p,
-                        scope: "Environment",
-                      })),
-                    ]
-                      .filter((p) => p.enabled)
-                      .map(
-                        (p) =>
-                          `{{${p.key}}} · ${tr(p.scope)} = ${p.isSecret ? "••••••••" : p.value}`,
-                      )
-                      .join("\n")}
-                    aria-label={tr("Request URL")}
-                    placeholder={tr("Enter URL or use {{host}}/api")}
-                    value={r.url}
-                    onChange={(e) =>
-                      edit({
-                        url: e.target.value,
-                        params: paramsFromUrl(e.target.value, r.params),
-                      })
-                    }
-                  />
+                  <div className="url-field">
+                    <input
+                      list="methods"
+                      className="method-select"
+                      aria-label={tr("HTTP method")}
+                      value={r.method}
+                      onChange={(e) =>
+                        edit({ method: e.target.value.toUpperCase() })
+                      }
+                    />
+                    <datalist id="methods">
+                      {[
+                        "GET",
+                        "POST",
+                        "PUT",
+                        "PATCH",
+                        "DELETE",
+                        "HEAD",
+                        "OPTIONS",
+                      ].map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </datalist>
+                    <input
+                      className="url-input"
+                      title={[
+                        ...w.globals.map((p) => ({ ...p, scope: "Global" })),
+                        ...(requestCollection?.variables ?? []).map((p) => ({
+                          ...p,
+                          scope: "Collection",
+                        })),
+                        ...(environment?.variables ?? []).map((p) => ({
+                          ...p,
+                          scope: "Environment",
+                        })),
+                      ]
+                        .filter((p) => p.enabled)
+                        .map(
+                          (p) =>
+                            `{{${p.key}}} · ${tr(p.scope)} = ${p.isSecret ? "••••••••" : p.value}`,
+                        )
+                        .join("\n")}
+                      aria-label={tr("Request URL")}
+                      placeholder={tr("Enter URL or use {{host}}/api")}
+                      value={r.url}
+                      onChange={(e) =>
+                        edit({
+                          url: e.target.value,
+                          params: paramsFromUrl(e.target.value, r.params),
+                        })
+                      }
+                    />
+                  </div>
                   <button
                     className="primary"
                     onClick={() =>
@@ -1107,28 +1256,158 @@ export default function App() {
                     {tr("⚠ TLS verification is disabled for this request")}
                   </div>
                 )}
-                <div className="editor-tabs">
-                  {[
-                    "Params",
-                    "Authorization",
-                    "Headers",
-                    "Body",
-                    "Settings",
-                    "Scripts",
-                  ].map((t) => (
-                    <button
-                      key={tr(t)}
-                      className={editor === t ? "active" : ""}
-                      onClick={() => setEditor(t)}
+                <div className="request-options editor-tabs">
+                  {["Params", "Body", "Headers", "Authorization"].map(
+                    (name) => {
+                      const count =
+                        name === "Params"
+                          ? r.params.filter((p) => p.enabled && p.key).length
+                          : name === "Headers"
+                            ? r.headers.filter((p) => p.enabled && p.key).length
+                            : 0;
+                      const configured =
+                        name === "Body"
+                          ? r.body.mode !== "none"
+                          : name === "Authorization" &&
+                            !["inherit", "noauth"].includes(
+                              r.auth?.type ?? "inherit",
+                            );
+                      return (
+                        <button
+                          key={name}
+                          aria-label={tr(name)}
+                          aria-expanded={editor === name}
+                          className={editor === name ? "active" : ""}
+                          onClick={() => setEditor(editor === name ? "" : name)}
+                        >
+                          {tr(name)}
+                          {count > 0 && (
+                            <span className="config-count">{count}</span>
+                          )}
+                          {configured && (
+                            <span
+                              className="config-count"
+                              aria-label={tr("Configured")}
+                            >
+                              •
+                            </span>
+                          )}
+                        </button>
+                      );
+                    },
+                  )}
+                  <div className="request-tools">
+                    <span
+                      className={`save-status ${tab?.saveState === "failed" ? "save-failed" : ""}`}
+                      role="status"
+                      title={requestCollection?.name}
                     >
-                      {tr(t)}
-                      {t === "Headers" && r.headers.length > 0
-                        ? ` (${r.headers.length})`
-                        : ""}
-                    </button>
-                  ))}
+                      {tr(
+                        tab?.saveState === "saving"
+                          ? "Saving…"
+                          : tab?.saveState === "failed"
+                            ? "Save failed"
+                            : requestItem && !tab?.dirty
+                              ? "Saved to %{name}"
+                              : tab?.saveState === "draft"
+                                ? "Draft saved locally"
+                                : tab?.dirty
+                                  ? "Unsaved changes"
+                                  : "Draft",
+                        { name: requestCollection?.name ?? "" },
+                      )}
+                    </span>
+                    <MoreMenu label={tr("More actions")}>
+                      <button onClick={() => void save().catch(fail)}>
+                        {tr("Save ⌘S")}
+                      </button>
+                      <button
+                        onClick={() =>
+                          void navigator.clipboard
+                            .writeText(requestToCurl(r))
+                            .then(() => setNotice("cURL copied."))
+                            .catch(fail)
+                        }
+                      >
+                        {tr("Copy cURL")}
+                      </button>
+                      <button
+                        onClick={() =>
+                          void api
+                            .preview(r)
+                            .then((p) => {
+                              setPreview(p);
+                              setModal("Preview");
+                            })
+                            .catch(fail)
+                        }
+                      >
+                        {tr("Preview request")}
+                      </button>
+                      {requestItem && (
+                        <>
+                          <button
+                            onClick={() =>
+                              void duplicate(requestItem.id, r).catch(fail)
+                            }
+                          >
+                            {tr("Duplicate")}
+                          </button>
+                          <button
+                            className="danger"
+                            onClick={() => {
+                              setSelected(requestItem.id);
+                              setModal("Delete");
+                            }}
+                          >
+                            {tr("Delete")}
+                          </button>
+                        </>
+                      )}
+                      <button
+                        onClick={() =>
+                          setEditor(editor === "Settings" ? "" : "Settings")
+                        }
+                      >
+                        {tr("Request settings")}
+                      </button>
+                      <button
+                        onClick={() =>
+                          setEditor(editor === "Scripts" ? "" : "Scripts")
+                        }
+                      >
+                        {tr("Scripts")}
+                      </button>
+                      <button onClick={() => setConsoleOpen(!consoleOpen)}>
+                        {tr("⌘ Console")}
+                        {consoleProblems > 0 && (
+                          <span className="console-problem-count">
+                            {consoleProblems}
+                          </span>
+                        )}
+                      </button>
+                    </MoreMenu>
+                  </div>
                 </div>
-                <div className="editor-content">
+                <div className="editor-content" hidden={!editor}>
+                  {["Settings", "Scripts"].includes(editor) && (
+                    <div className="advanced-heading">
+                      <span>
+                        {tr(
+                          editor === "Settings"
+                            ? "Request settings"
+                            : "Scripts",
+                        )}
+                      </span>
+                      <button
+                        className="icon-button"
+                        aria-label={tr("Close configuration")}
+                        onClick={() => setEditor("")}
+                      >
+                        <Icon name="close" />
+                      </button>
+                    </div>
+                  )}
                   {editor === "Params" && (
                     <KeyValue
                       rows={r.params}
@@ -1168,7 +1447,7 @@ export default function App() {
                       </p>
                       <pre>
                         {JSON.stringify(
-                          selectedItem?.metadata?.event ??
+                          requestItem?.metadata?.event ??
                             r.metadata?.event ??
                             [],
                           null,
@@ -1413,6 +1692,29 @@ export default function App() {
               </section>
               <div
                 className="divider"
+                hidden={!editor}
+                role="separator"
+                tabIndex={0}
+                aria-label={tr("Resize request and response")}
+                aria-orientation="horizontal"
+                aria-valuemin={220}
+                aria-valuemax={Math.round(maxEditorHeight)}
+                aria-valuenow={Math.round(editorHeight)}
+                onKeyDown={(e) => {
+                  if (!["ArrowUp", "ArrowDown", "Home"].includes(e.key)) return;
+                  e.preventDefault();
+                  setTopHeight(
+                    e.key === "Home"
+                      ? 340
+                      : Math.max(
+                          220,
+                          Math.min(
+                            maxEditorHeight,
+                            editorHeight + (e.key === "ArrowDown" ? 20 : -20),
+                          ),
+                        ),
+                  );
+                }}
                 onPointerDown={(e) => {
                   e.currentTarget.setPointerCapture(e.pointerId);
                 }}
@@ -1421,7 +1723,13 @@ export default function App() {
                     setTopHeight(
                       Math.max(
                         220,
-                        Math.min(window.innerHeight - 260, e.clientY - 95),
+                        Math.min(
+                          maxEditorHeight,
+                          e.clientY -
+                            (mainRef.current?.getBoundingClientRect().top ??
+                              52) -
+                            tabHeight,
+                        ),
                       ),
                     );
                 }}
@@ -1431,48 +1739,125 @@ export default function App() {
               />
               <section className="response">
                 <div className="response-heading">
-                  <h3>{tr("Response")}</h3>
-                  {tab?.response && (
-                    <div className="metrics">
-                      <b>
-                        {tab.response.status} {tab.response.statusText}
-                      </b>
-                      <span>
-                        {tab.response.duration} {tr("ms")}
-                      </span>
-                      <span>
-                        {(tab.response.size / 1024).toFixed(2)} {tr("KB")}
-                      </span>
-                      <button
-                        onClick={() =>
-                          void api.saveResponse(tab.response!.file).catch(fail)
-                        }
-                      >
-                        {tr("Save as…")}
-                      </button>
-                    </div>
+                  {tab?.response ? (
+                    <>
+                      <div className="metrics">
+                        <b
+                          className={
+                            tab.response.status >= 400
+                              ? "status-error"
+                              : tab.response.status >= 300
+                                ? "status-redirect"
+                                : "status-success"
+                          }
+                        >
+                          {tab.response.status} {tab.response.statusText}
+                        </b>
+                        <span>
+                          {tab.response.duration} {tr("ms")}
+                        </span>
+                        <span>
+                          {(tab.response.size / 1024).toFixed(2)} {tr("KB")}
+                        </span>
+                      </div>
+                      <div className="response-tools">
+                        <button
+                          aria-label={tr("Response body")}
+                          className={
+                            !["Headers", "Cookies"].includes(responseTab)
+                              ? "active"
+                              : ""
+                          }
+                          onClick={() => setResponseTab(responseFormat)}
+                        >
+                          {tr("Response body label")}
+                        </button>
+                        <button
+                          className={responseTab === "Headers" ? "active" : ""}
+                          onClick={() => setResponseTab("Headers")}
+                        >
+                          {tr("Response headers")}
+                        </button>
+                        {!["Headers", "Cookies"].includes(responseTab) && (
+                          <select
+                            aria-label={tr("Response format")}
+                            value={responseFormat}
+                            onChange={(e) => {
+                              setResponseFormat(e.target.value);
+                              setResponseTab(e.target.value);
+                            }}
+                          >
+                            {["Pretty", "Raw", "Preview"].map((format) => (
+                              <option key={format} value={format}>
+                                {tr(format)}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <button
+                          className="icon-button"
+                          aria-label={tr("Copy response")}
+                          title={tr("Copy response")}
+                          onClick={() =>
+                            void navigator.clipboard
+                              .writeText(
+                                ["Headers", "Cookies"].includes(responseTab)
+                                  ? tab
+                                      .response!.headers.filter(
+                                        ([key]) =>
+                                          responseTab !== "Cookies" ||
+                                          key.toLowerCase() === "set-cookie",
+                                      )
+                                      .map((header) => header.join(": "))
+                                      .join("\n")
+                                  : responseBody,
+                              )
+                              .catch(fail)
+                          }
+                        >
+                          <Icon name="copy" />
+                        </button>
+                        <MoreMenu label={tr("Response actions")}>
+                          <button onClick={() => setResponseTab("Cookies")}>
+                            {tr("Cookies")}
+                          </button>
+                          <button
+                            onClick={() =>
+                              void api
+                                .saveResponse(tab.response!.file)
+                                .catch(fail)
+                            }
+                          >
+                            {tr("Save as…")}
+                          </button>
+                        </MoreMenu>
+                      </div>
+                    </>
+                  ) : (
+                    <h3>{tr("Response")}</h3>
                   )}
                 </div>
+                {tab?.responseContext && (
+                  <div
+                    className="response-context"
+                    title={tab.responseContext.url}
+                  >
+                    {tr(
+                      "Response received at %{time} · %{environment}",
+                      tab.responseContext,
+                    )}
+                  </div>
+                )}
                 {!!tab?.error && (
                   <div role="alert" className="error">
                     {formatError(tab.error)}
+                    <button onClick={() => setConsoleOpen(true)}>
+                      {tr("View diagnostics")}
+                    </button>
                   </div>
                 )}
                 {tab?.response ? (
                   <>
-                    <div className="editor-tabs">
-                      {["Pretty", "Raw", "Preview", "Headers", "Cookies"].map(
-                        (t) => (
-                          <button
-                            key={tr(t)}
-                            className={responseTab === t ? "active" : ""}
-                            onClick={() => setResponseTab(t)}
-                          >
-                            {tr(t)}
-                          </button>
-                        ),
-                      )}
-                    </div>
                     {["Headers", "Cookies"].includes(responseTab) ? (
                       <div className="response-data">
                         <input
@@ -1480,19 +1865,6 @@ export default function App() {
                           value={headerSearch}
                           onChange={(e) => setHeaderSearch(e.target.value)}
                         />
-                        <button
-                          onClick={() =>
-                            void navigator.clipboard
-                              .writeText(
-                                tab
-                                  .response!.headers.map((h) => h.join(": "))
-                                  .join("\n"),
-                              )
-                              .catch(fail)
-                          }
-                        >
-                          {tr("Copy all")}
-                        </button>
                         {tab.response.headers
                           .filter(
                             ([k, v]) =>
@@ -1540,57 +1912,33 @@ export default function App() {
                           phrases,
                           ...(responseTab === "Pretty" ? [json()] : []),
                         ]}
+                        basicSetup={{
+                          lineNumbers: false,
+                          foldGutter: false,
+                          highlightActiveLine: false,
+                          highlightActiveLineGutter: false,
+                        }}
                         editable={false}
                       />
                     )}
                   </>
-                ) : (
-                  <div className="response-empty">
-                    <span>↗</span>
-                    <h3>{tr("Your response will appear here")}</h3>
-                    <p>
-                      {tr(
-                        "Send a request to inspect status, headers and body.",
-                      )}
-                    </p>
-                    <small>{tr("⌘ Enter to send")}</small>
+                ) : tab?.execution ? (
+                  <div className="response-empty" role="status">
+                    <h3>{tr("Sending request…")}</h3>
+                    <p>{tr("Waiting for this request's response.")}</p>
                   </div>
-                )}
+                ) : !tab?.error ? (
+                  <div className="response-empty">
+                    <p>{tr("Your response will appear here")}</p>
+                  </div>
+                ) : null}
               </section>
             </>
           ) : (
-            <div className="welcome">
-              <div className="brand-icon">{tr("LP")}</div>
-              <h1>{tr("Your APIs. Your machine.")}</h1>
-              <p>
-                {tr(
-                  "A local workspace for requests, environments and collections.",
-                )}
-              </p>
+            <div className="empty-workspace">
               <button className="primary" onClick={newTab}>
                 {tr("＋ New request")}
               </button>
-              <button onClick={() => void importFile()}>
-                {tr("Import Postman collection")}
-              </button>
-              <div className="welcome-grid">
-                <div>
-                  <b>{tr("01 / Organize")}</b>
-                  <p>
-                    {tr("Collections and folders keep your work together.")}
-                  </p>
-                </div>
-                <div>
-                  <b>{tr("02 / Configure")}</b>
-                  <p>
-                    {tr("Switch environments and resolve variables locally.")}
-                  </p>
-                </div>
-                <div>
-                  <b>{tr("03 / Inspect")}</b>
-                  <p>{tr("Send through Rust with full proxy control.")}</p>
-                </div>
-              </div>
             </div>
           )}
         </main>
@@ -1613,18 +1961,11 @@ export default function App() {
           {tr(notice)} ×
         </div>
       )}
-      <footer>
-        <button onClick={() => setConsoleOpen(!consoleOpen)}>
-          {tr("⌘ Console")}
-          {consoleOpen ? "⌄" : "⌃"}
-        </button>
-        <span>{tr("SQLite · Local only")}</span>
-        <span>{tr("openRequests", { count: tabs.length })}</span>
-      </footer>
       {consoleOpen && (
         <ConsolePanel
           entries={consoleEntries}
           onClear={() => setConsoleEntries([])}
+          onClose={() => setConsoleOpen(false)}
         />
       )}
     </div>

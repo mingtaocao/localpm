@@ -1,4 +1,4 @@
-import { useMemo, useState, type PointerEvent } from "react";
+import { useEffect, useMemo, useState, type PointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 export type RequestDiagnostic = {
@@ -49,17 +49,24 @@ export type ConsoleEntry = {
 type Filter = "all" | "http" | "network";
 const CONSOLE_HEIGHT_KEY = "localpm-console-height";
 const DEFAULT_CONSOLE_HEIGHT = 260;
+const MIN_CONSOLE_HEIGHT = 140;
+// Reserve header, footer, request tabs, a 220px editor and a 140px response.
+function maxConsoleHeight() {
+  return Math.max(MIN_CONSOLE_HEIGHT, window.innerHeight - 500);
+}
 
 function clampConsoleHeight(height: number) {
-  return Math.min(Math.max(height, 180), Math.max(180, window.innerHeight - 220));
+  return Math.min(Math.max(height, MIN_CONSOLE_HEIGHT), maxConsoleHeight());
 }
 
 export function ConsolePanel({
   entries,
   onClear,
+  onClose,
 }: {
   entries: ConsoleEntry[];
   onClear: () => void;
+  onClose: () => void;
 }) {
   const { t } = useTranslation();
   const [filter, setFilter] = useState<Filter>("all");
@@ -70,6 +77,16 @@ export function ConsolePanel({
     return clampConsoleHeight(saved > 0 ? saved : DEFAULT_CONSOLE_HEIGHT);
   });
   const [dragging, setDragging] = useState(false);
+  const [maxHeight, setMaxHeight] = useState(maxConsoleHeight);
+  useEffect(() => {
+    const onResize = () => setMaxHeight(maxConsoleHeight());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const visibleHeight = Math.min(
+    expanded ? window.innerHeight * 0.7 : height,
+    maxHeight,
+  );
   const setSavedHeight = (nextHeight: number) => {
     const clamped = clampConsoleHeight(nextHeight);
     setHeight(clamped);
@@ -92,37 +109,48 @@ export function ConsolePanel({
     setSavedHeight(window.innerHeight - event.clientY);
   };
   const visible = useMemo(
-    () => entries.filter((entry) => {
-      if (filter === "http" && !(entry.status && entry.status >= 400)) return false;
-      if (filter === "network" && !entry.error) return false;
-      return `${entry.method} ${entry.url} ${entry.status ?? ""} ${entry.error ?? ""}`
-        .toLowerCase()
-        .includes(query.toLowerCase());
-    }),
+    () =>
+      entries.filter((entry) => {
+        if (filter === "http" && !(entry.status && entry.status >= 400))
+          return false;
+        if (filter === "network" && !entry.error) return false;
+        return `${entry.method} ${entry.url} ${entry.status ?? ""} ${entry.error ?? ""}`
+          .toLowerCase()
+          .includes(query.toLowerCase());
+      }),
     [entries, filter, query],
   );
 
   return (
-    <section className={`console ${dragging ? "console-dragging" : ""}`} style={{ height: expanded ? "min(70vh, 760px)" : height, maxHeight: "calc(100vh - 220px)" }} aria-label={t("Console")}>
+    <section
+      className={`console ${dragging ? "console-dragging" : ""}`}
+      style={{ height: visibleHeight }}
+      aria-label={t("Console")}
+    >
       <div
         className="console-resizer"
         role="separator"
         tabIndex={0}
         aria-label={t("Resize console")}
         aria-orientation="horizontal"
-        aria-valuemin={180}
-        aria-valuemax={Math.max(180, window.innerHeight - 220)}
-        aria-valuenow={expanded ? clampConsoleHeight(window.innerHeight * 0.7) : height}
+        aria-valuemin={MIN_CONSOLE_HEIGHT}
+        aria-valuemax={maxHeight}
+        aria-valuenow={visibleHeight}
         onPointerDown={onResizeStart}
         onPointerMove={onResizeMove}
         onPointerUp={onResizeEnd}
         onPointerCancel={onResizeEnd}
-        onDoubleClick={() => { setExpanded(false); setSavedHeight(DEFAULT_CONSOLE_HEIGHT); }}
+        onDoubleClick={() => {
+          setExpanded(false);
+          setSavedHeight(DEFAULT_CONSOLE_HEIGHT);
+        }}
         onKeyDown={(event) => {
           if (event.key === "ArrowUp" || event.key === "ArrowDown") {
             event.preventDefault();
             setExpanded(false);
-            setSavedHeight(height + (event.key === "ArrowUp" ? 30 : -30));
+            setSavedHeight(
+              visibleHeight + (event.key === "ArrowUp" ? 30 : -30),
+            );
           } else if (event.key === "Home") {
             event.preventDefault();
             setExpanded(false);
@@ -148,88 +176,178 @@ export function ConsolePanel({
           <option value="network">{t("Network errors")}</option>
         </select>
         <span>{t("consoleEntries", { count: visible.length })}</span>
-        <button onClick={() => setExpanded(!expanded)}>{expanded ? t("Restore") : t("Expand")}</button>
-        <button disabled={!entries.length} onClick={onClear}>{t("Clear")}</button>
+        <button onClick={() => setExpanded(!expanded)}>
+          {expanded ? t("Restore") : t("Expand")}
+        </button>
+        <button disabled={!entries.length} onClick={onClear}>
+          {t("Clear")}
+        </button>
+        <button aria-label={t("Close console")} onClick={onClose}>
+          ×
+        </button>
       </div>
       <div className="console-list">
-        {visible.length ? visible.map((entry) => {
-          const problem = !!entry.error || (entry.status ?? 0) >= 400;
-          return (
-            <details className={`console-entry ${problem ? "console-entry-error" : ""}`} key={entry.id}>
-              <summary>
-                <time>{entry.time}</time>
-                <b className="method">{entry.method}</b>
-                <span className="console-url" title={entry.url}>{entry.url}</span>
-                <b className={problem ? "console-failed" : ""}>
-                  {entry.phase === "pending" ? t("Sending") : entry.error ? t("Failed") : entry.status}
-                </b>
-                <span>{entry.duration === undefined ? "…" : `${entry.duration} ms`}</span>
-              </summary>
-              <div className="console-details">
-                <div className="console-detail-toolbar">
-                  <span>{entry.prepared ? t("Built request") : t("Request preparation pending or failed")}</span>
-                  <button onClick={() => void navigator.clipboard.writeText(JSON.stringify(entry, null, 2))}>
-                    {t("Copy diagnostics")}
-                  </button>
+        {visible.length ? (
+          visible.map((entry) => {
+            const problem = !!entry.error || (entry.status ?? 0) >= 400;
+            return (
+              <details
+                className={`console-entry ${problem ? "console-entry-error" : ""}`}
+                key={entry.id}
+              >
+                <summary>
+                  <time>{entry.time}</time>
+                  <b className="method">{entry.method}</b>
+                  <span className="console-url" title={entry.url}>
+                    {entry.url}
+                  </span>
+                  <b className={problem ? "console-failed" : ""}>
+                    {entry.phase === "pending"
+                      ? t("Sending")
+                      : entry.error
+                        ? t("Failed")
+                        : entry.status}
+                  </b>
+                  <span>
+                    {entry.duration === undefined
+                      ? "…"
+                      : `${entry.duration} ms`}
+                  </span>
+                </summary>
+                <div className="console-details">
+                  <div className="console-detail-toolbar">
+                    <span>
+                      {entry.prepared
+                        ? t("Built request")
+                        : t("Request preparation pending or failed")}
+                    </span>
+                    <button
+                      onClick={() =>
+                        void navigator.clipboard.writeText(
+                          JSON.stringify(entry, null, 2),
+                        )
+                      }
+                    >
+                      {t("Copy diagnostics")}
+                    </button>
+                  </div>
+                  <div className="console-columns">
+                    <div>
+                      <h4>{t("Request")}</h4>
+                      <p className="console-address">
+                        <b>{entry.method}</b> {entry.url}
+                      </p>
+                      {entry.prepared && (
+                        <>
+                          <h5>{t("Headers")}</h5>
+                          <HeaderList
+                            headers={entry.requestHeaders}
+                            empty={t("No request headers")}
+                          />
+                          <h5>{t("Body")}</h5>
+                          <BodyPreview
+                            body={entry.bodyPreview}
+                            binary={entry.bodyPreview === null}
+                            truncated={
+                              entry.bodySize !== undefined &&
+                              entry.bodySize !== null &&
+                              entry.bodySize > 64 * 1024
+                            }
+                            empty={
+                              entry.bodyMode && entry.bodyMode !== "none"
+                                ? t(
+                                    "Streaming body or file; bytes are not buffered for Console.",
+                                  )
+                                : t("No request body")
+                            }
+                          />
+                        </>
+                      )}
+                    </div>
+                    <div>
+                      <h4>{entry.error ? t("Error") : t("Response")}</h4>
+                      {entry.error ? (
+                        <>
+                          <p className="console-failed">{entry.error}</p>
+                          {entry.errorDetail &&
+                            entry.errorDetail !== entry.error && (
+                              <pre>{entry.errorDetail}</pre>
+                            )}
+                        </>
+                      ) : entry.phase === "pending" ? (
+                        <p>{t("Sending")}</p>
+                      ) : (
+                        <>
+                          <p>
+                            <b className={problem ? "console-failed" : ""}>
+                              {entry.status} {entry.statusText}
+                            </b>{" "}
+                            · {entry.duration} ms · {entry.size ?? 0} B
+                          </p>
+                          {entry.finalUrl && entry.finalUrl !== entry.url && (
+                            <p>
+                              {t("Final URL")}: {entry.finalUrl}
+                            </p>
+                          )}
+                          <h5>{t("Headers")}</h5>
+                          <HeaderList
+                            headers={entry.responseHeaders ?? []}
+                            empty={t("No response headers")}
+                          />
+                          <h5>{t("Body")}</h5>
+                          <BodyPreview
+                            body={entry.responseBody}
+                            binary={!!entry.responseBinary}
+                            truncated={!!entry.responseTruncated}
+                            empty={t("No response body")}
+                          />
+                        </>
+                      )}
+                      {!!entry.redirects.length && (
+                        <>
+                          <h5>{t("Redirect endpoints")}</h5>
+                          <ol>
+                            {entry.redirects.map((url, index) => (
+                              <li key={`${url}-${index}`}>{url}</li>
+                            ))}
+                          </ol>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {entry.prepared && (
+                    <div className="console-network">
+                      <h4>{t("Network")}</h4>
+                      <span>
+                        {t("Route")}: {entry.proxyMode}
+                        {entry.proxyUrl ? ` · ${entry.proxyUrl}` : ""}
+                        {entry.proxyBypassed
+                          ? ` · ${t("No Proxy bypass")}`
+                          : ""}
+                      </span>
+                      <span>
+                        {t("Timeout")}: {entry.timeout} ms
+                      </span>
+                      <span>
+                        {t("Certificate verification")}:{" "}
+                        {entry.verifyTls ? t("On") : t("Off")}
+                      </span>
+                    </div>
+                  )}
+                  <small className="console-note">
+                    {t(
+                      "Request headers reflect the built request. Client cookies and transport headers may be added when sending.",
+                    )}
+                  </small>
                 </div>
-                <div className="console-columns">
-                  <div>
-                    <h4>{t("Request")}</h4>
-                    <p className="console-address"><b>{entry.method}</b> {entry.url}</p>
-                    {entry.prepared && (
-                      <>
-                        <h5>{t("Headers")}</h5>
-                        <HeaderList headers={entry.requestHeaders} empty={t("No request headers")} />
-                        <h5>{t("Body")}</h5>
-                        <BodyPreview
-                          body={entry.bodyPreview}
-                          binary={entry.bodyPreview === null}
-                          truncated={entry.bodySize !== undefined && entry.bodySize !== null && entry.bodySize > 64 * 1024}
-                          empty={entry.bodyMode && entry.bodyMode !== "none" ? t("Streaming body or file; bytes are not buffered for Console.") : t("No request body")}
-                        />
-                      </>
-                    )}
-                  </div>
-                  <div>
-                    <h4>{entry.error ? t("Error") : t("Response")}</h4>
-                    {entry.error ? (
-                      <>
-                        <p className="console-failed">{entry.error}</p>
-                        {entry.errorDetail && entry.errorDetail !== entry.error && <pre>{entry.errorDetail}</pre>}
-                      </>
-                    ) : entry.phase === "pending" ? <p>{t("Sending")}</p> : (
-                      <>
-                        <p><b className={problem ? "console-failed" : ""}>{entry.status} {entry.statusText}</b> · {entry.duration} ms · {entry.size ?? 0} B</p>
-                        {entry.finalUrl && entry.finalUrl !== entry.url && <p>{t("Final URL")}: {entry.finalUrl}</p>}
-                        <h5>{t("Headers")}</h5>
-                        <HeaderList headers={entry.responseHeaders ?? []} empty={t("No response headers")} />
-                        <h5>{t("Body")}</h5>
-                        <BodyPreview body={entry.responseBody} binary={!!entry.responseBinary} truncated={!!entry.responseTruncated} empty={t("No response body")} />
-                      </>
-                    )}
-                    {!!entry.redirects.length && (
-                      <>
-                        <h5>{t("Redirect endpoints")}</h5>
-                        <ol>{entry.redirects.map((url, index) => <li key={`${url}-${index}`}>{url}</li>)}</ol>
-                      </>
-                    )}
-                  </div>
-                </div>
-                {entry.prepared && (
-                  <div className="console-network">
-                    <h4>{t("Network")}</h4>
-                    <span>{t("Route")}: {entry.proxyMode}{entry.proxyUrl ? ` · ${entry.proxyUrl}` : ""}{entry.proxyBypassed ? ` · ${t("No Proxy bypass")}` : ""}</span>
-                    <span>{t("Timeout")}: {entry.timeout} ms</span>
-                    <span>{t("Certificate verification")}: {entry.verifyTls ? t("On") : t("Off")}</span>
-                  </div>
-                )}
-                <small className="console-note">{t("Request headers reflect the built request. Client cookies and transport headers may be added when sending.")}</small>
-              </div>
-            </details>
-          );
-        }) : (
+              </details>
+            );
+          })
+        ) : (
           <div className="console-empty">
-            {entries.length ? t("No console entries match this filter.") : t("No requests sent this session.")}
+            {entries.length
+              ? t("No console entries match this filter.")
+              : t("No requests sent this session.")}
           </div>
         )}
       </div>
@@ -237,7 +355,17 @@ export function ConsolePanel({
   );
 }
 
-function BodyPreview({body, binary, truncated, empty}: {body?: string | null; binary: boolean; truncated: boolean; empty: string}) {
+function BodyPreview({
+  body,
+  binary,
+  truncated,
+  empty,
+}: {
+  body?: string | null;
+  binary: boolean;
+  truncated: boolean;
+  empty: string;
+}) {
   const { t } = useTranslation();
   if (binary) return <p className="muted">{empty}</p>;
   if (!body) return <p className="muted">{empty}</p>;
@@ -245,17 +373,30 @@ function BodyPreview({body, binary, truncated, empty}: {body?: string | null; bi
   return (
     <>
       <pre className="console-body">{visible}</pre>
-      {(truncated || body.length > visible.length) && <small>{t("Preview truncated; save response for complete body.")}</small>}
+      {(truncated || body.length > visible.length) && (
+        <small>
+          {t("Preview truncated; save response for complete body.")}
+        </small>
+      )}
     </>
   );
 }
 
-function HeaderList({headers, empty}: {headers: [string, string][]; empty: string}) {
+function HeaderList({
+  headers,
+  empty,
+}: {
+  headers: [string, string][];
+  empty: string;
+}) {
   if (!headers.length) return <p className="muted">{empty}</p>;
   return (
     <dl className="console-headers">
       {headers.map(([name, value], index) => (
-        <div key={`${name}-${index}`}><dt>{name}</dt><dd>{value}</dd></div>
+        <div key={`${name}-${index}`}>
+          <dt>{name}</dt>
+          <dd>{value}</dd>
+        </div>
       ))}
     </dl>
   );
