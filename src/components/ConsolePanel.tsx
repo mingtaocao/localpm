@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type PointerEvent } from "react";
+import { layoutNumber, saveLayout } from "../stores/layout";
 import { useTranslation } from "react-i18next";
 
 export type RequestDiagnostic = {
@@ -49,10 +50,22 @@ export type ConsoleEntry = {
 type Filter = "all" | "http" | "network";
 const CONSOLE_HEIGHT_KEY = "localpm-console-height";
 const DEFAULT_CONSOLE_HEIGHT = 260;
-const MIN_CONSOLE_HEIGHT = 140;
-// Reserve header, footer, request tabs, a 220px editor and a 140px response.
+const MIN_CONSOLE_HEIGHT = 160;
+// Keep the 180px editor, 160px response, tabs and divider usable at minimum size.
 function maxConsoleHeight() {
-  return Math.max(MIN_CONSOLE_HEIGHT, window.innerHeight - 500);
+  return Math.max(
+    MIN_CONSOLE_HEIGHT,
+    Math.min(
+      (window.innerHeight - 48) * 0.7,
+      window.innerHeight -
+        48 -
+        (window.innerHeight >= 720 ? 240 : 194) -
+        160 -
+        38 -
+        6 -
+        32,
+    ),
+  );
 }
 
 function clampConsoleHeight(height: number) {
@@ -71,9 +84,11 @@ export function ConsolePanel({
   const { t } = useTranslation();
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [height, setHeight] = useState(() => {
-    const saved = Number(window.localStorage.getItem(CONSOLE_HEIGHT_KEY));
+    const saved = layoutNumber(CONSOLE_HEIGHT_KEY, DEFAULT_CONSOLE_HEIGHT);
     return clampConsoleHeight(saved > 0 ? saved : DEFAULT_CONSOLE_HEIGHT);
   });
   const [dragging, setDragging] = useState(false);
@@ -90,7 +105,7 @@ export function ConsolePanel({
   const setSavedHeight = (nextHeight: number) => {
     const clamped = clampConsoleHeight(nextHeight);
     setHeight(clamped);
-    window.localStorage.setItem(CONSOLE_HEIGHT_KEY, String(clamped));
+    saveLayout(CONSOLE_HEIGHT_KEY, String(clamped));
   };
   const onResizeStart = (event: PointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -186,6 +201,14 @@ export function ConsolePanel({
           ×
         </button>
       </div>
+      <div className="console-grid console-column-heading" aria-hidden="true">
+        <span>{t("Method")}</span>
+        <span>{t("Request URL")}</span>
+        <span>{t("Status")}</span>
+        <span>{t("Duration")}</span>
+        <span>{t("Size")}</span>
+        <span>{t("Timestamp")}</span>
+      </div>
       <div className="console-list">
         {visible.length ? (
           visible.map((entry) => {
@@ -196,8 +219,9 @@ export function ConsolePanel({
                 key={entry.id}
               >
                 <summary>
-                  <time>{entry.time}</time>
-                  <b className="method">{entry.method}</b>
+                  <b className="method" data-method={entry.method}>
+                    {entry.method}
+                  </b>
                   <span className="console-url" title={entry.url}>
                     {entry.url}
                   </span>
@@ -213,6 +237,12 @@ export function ConsolePanel({
                       ? "…"
                       : `${entry.duration} ms`}
                   </span>
+                  <span>
+                    {entry.size === undefined
+                      ? "—"
+                      : `${(entry.size / 1024).toFixed(2)} KB`}
+                  </span>
+                  <time>{entry.time}</time>
                 </summary>
                 <div className="console-details">
                   <div className="console-detail-toolbar">
@@ -223,14 +253,43 @@ export function ConsolePanel({
                     </span>
                     <button
                       onClick={() =>
-                        void navigator.clipboard.writeText(
-                          JSON.stringify(entry, null, 2),
-                        )
+                        void navigator.clipboard
+                          .writeText(JSON.stringify(entry, null, 2))
+                          .then(() => setCopied(true))
+                          .catch(() => setCopyError(true))
                       }
                     >
-                      {t("Copy diagnostics")}
+                      {copied ? t("Copied") : t("Copy diagnostics")}
                     </button>
                   </div>
+                  {copyError && (
+                    <p role="alert" className="console-failed">
+                      {t("Copy failed")}
+                    </p>
+                  )}
+                  <h4>{t("General")}</h4>
+                  <dl className="console-general">
+                    {[
+                      [t("Request URL"), entry.url],
+                      [t("Method"), entry.method],
+                      [
+                        t("Status"),
+                        entry.error ?? entry.status ?? t("Sending"),
+                      ],
+                      [
+                        t("Duration"),
+                        entry.duration === undefined
+                          ? "—"
+                          : `${entry.duration} ms`,
+                      ],
+                      [t("Timestamp"), entry.time],
+                    ].map(([label, value]) => (
+                      <div key={label}>
+                        <dt>{label}</dt>
+                        <dd>{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
                   <div className="console-columns">
                     <div>
                       <h4>{t("Request")}</h4>
@@ -245,6 +304,9 @@ export function ConsolePanel({
                             empty={t("No request headers")}
                           />
                           <h5>{t("Body")}</h5>
+                          {entry.bodySize != null && (
+                            <small>{entry.bodySize} B</small>
+                          )}
                           <BodyPreview
                             body={entry.bodyPreview}
                             binary={entry.bodyPreview === null}
@@ -331,6 +393,14 @@ export function ConsolePanel({
                       <span>
                         {t("Certificate verification")}:{" "}
                         {entry.verifyTls ? t("On") : t("Off")}
+                      </span>
+                    </div>
+                  )}
+                  {entry.duration !== undefined && (
+                    <div className="console-network">
+                      <h4>{t("Timing")}</h4>
+                      <span>
+                        {t("Observed duration")}: {entry.duration} ms
                       </span>
                     </div>
                   )}

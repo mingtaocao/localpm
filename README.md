@@ -17,6 +17,17 @@
 - 多标签、500ms Draft、已有请求 2s 自动保存、History、每日 SQLite 备份（最近 7 份）。
 - Postman Collection v2.1 / Environment 导入导出；保留未知字段、禁用行和 Scripts；V1 不执行 Scripts。
 - 响应 Pretty/Raw/沙箱 HTML Preview、Headers/Cookies、复制/筛选和 Save as；超过 20MB 的响应只保存文件，不向 UI 传递全文。
+- 本地 MCP 服务：按集合与环境授权 AI 读取、预览、发送已保存请求；后台执行、取消和独立结果历史。
+
+## AI 接入（MCP）
+
+在设置中展开“AI 接入（MCP）”，选择可读取和可发送的集合、可使用的环境，再启用服务。默认关闭且没有授权；“可发送”必须同时授权读取。无环境请求需要单独勾选允许。
+
+点击“复制连接配置”，粘贴到支持 Streamable HTTP 的 MCP 客户端。默认地址是 `http://127.0.0.1:18181/mcp`，端口可在折叠的连接选项中修改。应用需要保持运行。复制内容含 Bearer 凭据，请只提供给你信任的客户端；凭据保存在操作系统凭据库，授权设置独立保存在 SQLite 中。当前版本没有生产用 stdio 桥接。
+
+工具调用流程是 `search_requests` / `get_request` → `list_environments` → `preview_request` → `run_request` → `get_execution`，需要停止时调用 `cancel_execution`。预览必须明确指定 `environmentId`（无环境使用 `null`），快照有效期为 10 分钟，运行同一快照不会重复发送。可临时覆盖现有参数和部分 Body 字段，不会修改已保存请求。每次只运行一个 AI 请求，手动发送可以同时进行。
+
+AI 不会切换界面的当前环境，也不会覆盖正在编辑的请求或响应。运行时出现一条简短状态栏；历史中可以查看带来源和环境的只读结果。返回给 MCP 的响应只包含最多 64KB 的脱敏预览，隐藏内部缓存路径、本地文件配置路径及已识别的凭据；普通业务数据仍会提供给连接的客户端。停止服务或修改授权会撤销未使用的预览，并取消当前 AI 请求。
 
 ## 主题与语言（V1.1 增量）
 
@@ -58,11 +69,11 @@ cargo test --manifest-path src-tauri/Cargo.toml --test keychain -- --ignored
 真实 Rust/SQLite 界面回归（需要 Google Chrome）：
 
 ```sh
-cargo build --manifest-path src-tauri/Cargo.toml --example test_bridge
+cargo build --manifest-path src-tauri/Cargo.toml --examples
 npm run test:e2e
 ```
 
-`test_bridge` 是独立测试程序，不包含在安装包内。Playwright 使用浏览器 UI 和实际 Rust HTTP/SQLite，通过测试专用 stdio 适配器连接；文件选择对话框由测试替换。此测试不等同于原生平台安装验收。原生 macOS 验收另外执行。
+`test_bridge` 和 `mcp_test_server` 是独立测试程序，不包含在安装包内。Playwright 使用浏览器 UI 和实际 Rust HTTP/SQLite，通过测试专用 stdio 适配器连接；MCP 回归使用正式服务实现、隔离数据库和显式测试凭据。文件选择对话框由测试替换。此测试不等同于原生平台安装验收。原生 macOS 验收另外执行。
 
 交互式本地服务：
 
@@ -120,3 +131,7 @@ npm run tauri build -- --bundles nsis
 - 正式 Apple 签名/公证和 Windows 签名需要用户证书；当前开发安装包使用 ad-hoc / unsigned 方式。
 
 详细设计、执行规范和最终验收依据分别见 `LOCAL_POSTMAN_DESIGN.md`、`AI_EXECUTION.md` 和 `ACCEPTANCE.md`，三份原始文档保持不变。
+
+### UI credits
+
+Response metrics use the adapted [Rare UI](https://rareui.com) Animated Counter component by Swami Malode. Navigation follows the LocalPM modern developer-tool design specification. The component license is preserved in `src/components/rare-ui/LICENSE`.

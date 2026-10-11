@@ -59,6 +59,10 @@ export type HistoryResponse = {
   size?: number;
   body?: string;
   error?: { code?: string; message?: string };
+  executionId?: string;
+  source?: "manual" | "mcp";
+  environmentId?: string | null;
+  environmentName?: string;
 };
 export type HistoryEntry = {
   id: number;
@@ -79,6 +83,33 @@ export type ResponseResult = {
   file: string;
   truncated: boolean;
   binary: boolean;
+};
+export type ExecutionRecord = {
+  id: string;
+  source: "manual" | "mcp";
+  collectionId?: string | null;
+  environmentId?: string | null;
+  environmentName: string;
+  startedAt: number;
+  status: "running" | "completed" | "failed" | "cancelled";
+  request: RequestSpec;
+  response?: ResponseResult | null;
+  error?: { code: string; message: string } | null;
+};
+export type McpConfig = {
+  enabled: boolean;
+  port: number;
+  readCollections: string[];
+  executeCollections: string[];
+  environments: string[];
+  allowNoEnvironment: boolean;
+};
+export type McpStatus = {
+  config: McpConfig;
+  running: boolean;
+  endpoint?: string | null;
+  error?: string | null;
+  activeExecutions: ExecutionRecord[];
 };
 export const pair = (): Pair => ({
   key: "",

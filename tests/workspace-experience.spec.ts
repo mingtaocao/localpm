@@ -32,8 +32,15 @@ async function openMore(page: Page) {
 }
 
 async function saveRequest(page: Page) {
-  await openMore(page);
   await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
+  if (await page.getByLabel("Save location", { exact: true }).isVisible()) {
+    await page
+      .getByLabel("Save location", { exact: true })
+      .selectOption({ index: 1 });
+    await page
+      .getByRole("button", { name: "Save request", exact: true })
+      .click();
+  }
 }
 
 async function openWorkspace(
@@ -129,7 +136,7 @@ async function openWorkspace(
   return { read: () => workspace, drafts };
 }
 
-test("starts with a ready blank request and keeps optional workspace controls collapsed", async ({
+test("starts with discoverable requests and method selection in the workspace", async ({
   page,
 }) => {
   await openWorkspace(page, { openSavedRequest: false });
@@ -141,17 +148,17 @@ test("starts with a ready blank request and keeps optional workspace controls co
     page.getByRole("button", { name: "Send ↗", exact: true }),
   ).toBeInViewport();
   await expect(
-    page.getByRole("button", { name: "Show requests", exact: true }),
+    page.getByRole("button", { name: "Hide requests", exact: true }),
   ).toBeVisible();
-  await expect(page.locator("aside")).toBeHidden();
-  await expect(page.locator(".editor-content")).toBeHidden();
-  await expect(page.locator(".request-tabs")).toHaveCount(0);
+  await expect(page.locator("aside")).toBeVisible();
+  await expect(page.locator(".editor-content")).toBeVisible();
+  await expect(page.locator(".request-tabs")).toHaveCount(1);
   await expect(page.locator(".welcome")).toHaveCount(0);
   await expect(page.locator("footer")).toHaveCount(0);
   for (const name of ["Params", "Headers", "Body", "Authorization"]) {
     await expect(
       page.getByRole("button", { name, exact: true }),
-    ).toHaveAttribute("aria-expanded", "false");
+    ).toHaveAttribute("aria-expanded", name === "Params" ? "true" : "false");
   }
   await showSidebar(page);
   await expect(
@@ -170,7 +177,9 @@ test("configuration can be collapsed without losing parameters or body data", as
   const params = page.getByRole("button", { name: "Params", exact: true });
   await params.click();
   await page.getByLabel("Value 1", { exact: true }).fill("7");
-  await params.click();
+  await page
+    .getByRole("button", { name: "Collapse configuration", exact: true })
+    .click();
   await expect(page.getByLabel("Value 1", { exact: true })).toBeHidden();
   await expect(page.getByLabel("Request URL", { exact: true })).toHaveValue(
     "https://example.test/users?page=7",
@@ -182,7 +191,9 @@ test("configuration can be collapsed without losing parameters or body data", as
   await page.getByLabel("Body mode", { exact: true }).selectOption("raw");
   await page.getByLabel("Raw language", { exact: true }).selectOption("json");
   await page.locator(".request-editor .cm-content").fill('{"keep":"my draft"}');
-  await body.click();
+  await page
+    .getByRole("button", { name: "Collapse configuration", exact: true })
+    .click();
   await expect(page.locator(".request-editor .cm-content")).toBeHidden();
   await body.click();
   await expect(page.locator(".request-editor .cm-content")).toContainText(
@@ -200,7 +211,7 @@ test("duplicating before autosave preserves the current request name, URL and bo
   const editedBody = '{"source":"unsaved changes"}';
   await page.getByLabel("Request name", { exact: true }).fill("Edited users");
   await page.getByLabel("Request URL", { exact: true }).fill(editedUrl);
-  await page.getByLabel("HTTP method", { exact: true }).fill("POST");
+  await page.getByLabel("HTTP method", { exact: true }).selectOption("POST");
   await page.getByRole("button", { name: "Body", exact: true }).click();
   await page.getByLabel("Body mode", { exact: true }).selectOption("raw");
   await page.getByLabel("Raw language", { exact: true }).selectOption("json");
@@ -288,7 +299,9 @@ test("switching request tabs restores each request's collection variables and sc
   await showSidebar(page);
   await page.getByRole("button", { name: "GET Orders", exact: true }).click();
   const tabs = page.locator(".request-tabs");
-  await tabs.getByRole("button", { name: "GET Users", exact: true }).click();
+  await tabs
+    .getByRole("button", { name: "Request tab: Users", exact: true })
+    .click();
   await expect(page.getByLabel("Request URL", { exact: true })).toHaveAttribute(
     "title",
     /https:\/\/users\.collection\.test/,
@@ -305,7 +318,9 @@ test("switching request tabs restores each request's collection variables and sc
     "orders-only-script",
   );
 
-  await tabs.getByRole("button", { name: "GET Orders", exact: true }).click();
+  await tabs
+    .getByRole("button", { name: "Request tab: Orders", exact: true })
+    .click();
   await expect(page.getByLabel("Request URL", { exact: true })).toHaveAttribute(
     "title",
     /https:\/\/orders\.collection\.test/,
@@ -325,20 +340,24 @@ test("more actions opens by keyboard and dismisses after Escape, outside interac
 }) => {
   await openWorkspace(page);
   const more = page.getByRole("button", { name: "More actions", exact: true });
-  const save = page.getByRole("button", { name: "Save ⌘S", exact: true });
-  await expect(save).toBeHidden();
+  const copy = page.getByRole("button", { name: "Copy cURL", exact: true });
+  await expect(copy).toBeHidden();
   await more.focus();
   await more.press("Enter");
-  await expect(save).toBeVisible();
+  await expect(copy).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(save).toBeHidden();
+  await expect(copy).toBeHidden();
   await more.click();
   await page.getByLabel("Request URL", { exact: true }).click();
-  await expect(save).toBeHidden();
+  await expect(copy).toBeHidden();
   await more.click();
-  await page.getByRole("button", { name: "⌘ Console", exact: false }).click();
-  await expect(save).toBeHidden();
-  await expect(page.locator(".console")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Request settings", exact: true })
+    .click();
+  await expect(copy).toBeHidden();
+  await expect(page.locator(".advanced-heading")).toContainText(
+    "Request settings",
+  );
 });
 
 test("response formats, headers, cookies and save remain usable with a minimum-height response pane", async ({
@@ -422,9 +441,8 @@ test("minimum window retains request, response and console controls, including r
   ).toBeVisible();
   await expect(page.locator(".metrics b")).toHaveCSS(
     "color",
-    "rgb(163, 50, 39)",
+    "rgb(189, 68, 68)",
   );
-  await openMore(page);
   await page.getByRole("button", { name: "⌘ Console", exact: false }).click();
   const checkLayout = async () => {
     await expect
@@ -436,7 +454,7 @@ test("minimum window retains request, response and console controls, including r
           const console = box(".console");
           const send = box(".url-bar .primary");
           return (
-            result.height >= 140 &&
+            result.height >= 160 &&
             result.bottom <= console.top + 1 &&
             send.bottom < result.top &&
             console.bottom <= innerHeight
@@ -635,4 +653,429 @@ test("editing during an in-flight save retains the newer draft and does not mark
   await saveRequest(page);
   await expect(page.locator(".save-status")).toHaveText("Saved to API");
   expect(backend.read().items[0].request?.params[0].value).toBe("3");
+});
+
+for (const theme of ["light", "dark"]) {
+  test(`resource navigation and response metrics remain usable in ${theme} mode`, async ({
+    page,
+  }) => {
+    let sends = 0;
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openWorkspace(page, {
+      theme,
+      send: async () => ({
+        ...response,
+        status: 200,
+        statusText: "OK",
+        duration: ++sends === 1 ? 128 : 45,
+        size: sends === 1 ? 2048 : 512,
+      }),
+    });
+    await showSidebar(page);
+    const history = page.getByRole("button", { name: "History", exact: true });
+    await history.focus();
+    await page.keyboard.press("Enter");
+    await expect(history).toHaveAttribute("aria-current", "true");
+    await page
+      .getByRole("button", { name: "Collections", exact: true })
+      .click();
+    const params = page.getByRole("button", { name: "Params", exact: true });
+    await params.focus();
+    await page.keyboard.press("Enter");
+    await expect(params).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByLabel("Value 1", { exact: true })).toHaveValue("1");
+    await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+    const counters = page.locator(
+      '.metrics [data-slot="animated-counter"] .rare-sr-only',
+    );
+    await expect(counters).toHaveText(["128", "2.00"]);
+    await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+    await expect(counters).toHaveText(["45", "0.50"]);
+    await page.screenshot({ path: `artifacts/modern-ui-${theme}.png` });
+    await page.setViewportSize({ width: 900, height: 640 });
+    await expect(
+      page.getByRole("button", { name: "Authorization", exact: true }),
+    ).toBeInViewport();
+    await expect(
+      page.getByRole("button", { name: "More actions", exact: true }),
+    ).toBeInViewport();
+  });
+}
+
+test("resource switches preserve collection expansion and visible environment entries", async ({
+  page,
+}) => {
+  await openWorkspace(page);
+  await showSidebar(page);
+  const collapse = page.getByRole("button", {
+    name: "Collapse API",
+    exact: true,
+  });
+  await collapse.click();
+  await expect(
+    page.getByRole("button", { name: "GET Users", exact: true }),
+  ).toBeHidden();
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  await page.getByRole("button", { name: "Environments", exact: true }).click();
+  const dev = page
+    .locator("aside .resource-content:not([hidden]) .tree-item")
+    .filter({ hasText: "DEV" });
+  await expect(dev).toBeVisible();
+  await expect(dev).toHaveCSS("opacity", "1");
+  await page.getByRole("button", { name: "Collections", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Expand API", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Expand API", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "GET Users", exact: true }),
+  ).toBeVisible();
+});
+
+test("panel sizes and Console visibility recover safely after reload", async ({
+  page,
+}) => {
+  await openWorkspace(page);
+  await page.getByRole("button", { name: "Params", exact: true }).click();
+  const split = page.getByRole("separator", {
+    name: "Resize request and response",
+  });
+  await split.press("ArrowDown");
+  const savedEditor = await split.getAttribute("aria-valuenow");
+  await page.getByRole("button", { name: "⌘ Console", exact: false }).click();
+  const consoleSplit = page.getByRole("separator", { name: "Resize console" });
+  await consoleSplit.press("ArrowUp");
+  const savedConsole = await consoleSplit.getAttribute("aria-valuenow");
+  await page.reload();
+  await expect(
+    page.getByRole("separator", { name: "Resize console" }),
+  ).toHaveAttribute("aria-valuenow", savedConsole!);
+  await page.getByRole("button", { name: "Close console" }).click();
+  await page.getByRole("button", { name: "Params", exact: true }).click();
+  await expect(split).toHaveAttribute("aria-valuenow", savedEditor!);
+  await page.evaluate(() => {
+    localStorage.setItem("local-postman.sidebar-width", "Infinity");
+    localStorage.setItem("localpm-console-height", "not-a-number");
+    localStorage.setItem("localpm-editor-height", "-100");
+  });
+  await page.reload();
+  await showSidebar(page);
+  await expect(page.locator("aside")).toHaveCSS("width", "260px");
+});
+
+for (const theme of ["light", "dark"]) {
+  for (const language of ["en-US", "zh-CN"]) {
+    test(`modern UI window matrix ${theme} ${language}`, async ({ page }) => {
+      await openWorkspace(page, {
+        theme,
+        openSavedRequest: false,
+        configure: (w) => {
+          w.settings.language = language;
+        },
+      });
+      const chinese = language === "zh-CN";
+      await page
+        .getByRole("button", { name: chinese ? "参数" : "Params", exact: true })
+        .click();
+      await page
+        .getByRole("button", {
+          name: chinese ? "更多操作" : "More actions",
+          exact: true,
+        })
+        .click();
+      await page
+        .getByRole("button", {
+          name: chinese ? "⌘ 控制台" : "⌘ Console",
+          exact: false,
+        })
+        .click();
+      for (const [width, height] of [
+        [900, 640],
+        [1280, 800],
+        [1440, 900],
+        [1920, 1080],
+      ]) {
+        await page.setViewportSize({ width, height });
+        await expect(
+          page.getByRole("button", {
+            name: chinese ? "发送 ↗" : "Send ↗",
+            exact: true,
+          }),
+        ).toBeInViewport();
+        await expect(
+          page.getByRole("button", {
+            name: chinese ? "关闭控制台" : "Close console",
+            exact: true,
+          }),
+        ).toBeInViewport();
+        await expect
+          .poll(() =>
+            page.evaluate(() => {
+              const response = document
+                .querySelector(".response")!
+                .getBoundingClientRect();
+              const console = document
+                .querySelector(".console")!
+                .getBoundingClientRect();
+              const editor = document
+                .querySelector(".request-editor")!
+                .getBoundingClientRect();
+              return (
+                response.height >= 160 &&
+                editor.height >= 180 &&
+                response.bottom <= console.top + 1 &&
+                console.bottom <= innerHeight
+              );
+            }),
+          )
+          .toBe(true);
+      }
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+      await page.screenshot({
+        path: `artifacts/modern-ui-${theme}-${language}.png`,
+        animations: "disabled",
+      });
+    });
+  }
+}
+
+test("layout storage unavailable does not prevent resizing or request editing", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Storage.prototype.setItem = () => {
+      throw new Error("storage unavailable");
+    };
+    Storage.prototype.getItem = () => {
+      throw new Error("storage unavailable");
+    };
+  });
+  await openWorkspace(page);
+  await showSidebar(page);
+  await page
+    .getByRole("separator", { name: "Resize workspace panel" })
+    .press("ArrowRight");
+  await expect(page.locator("aside")).toHaveCSS("width", "276px");
+  await page.getByLabel("Request URL").fill("https://example.test/edited");
+  await expect(page.getByLabel("Request URL")).toHaveValue(
+    "https://example.test/edited",
+  );
+});
+
+test.describe("high DPI visual acceptance", () => {
+  test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+  test("Retina layout shows resources, response and diagnostic details", async ({
+    page,
+  }) => {
+    await openWorkspace(page, { theme: "dark" });
+    await showSidebar(page);
+    await page.getByRole("button", { name: "Params", exact: true }).click();
+    await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+    await openMore(page);
+    await page.getByRole("button", { name: "⌘ Console", exact: false }).click();
+    await page.getByRole("button", { name: "Expand", exact: true }).click();
+    await page.locator(".console-entry summary").click();
+    await expect(page.locator(".console-general")).toBeVisible();
+    await expect(page.locator(".app")).toHaveCount(1);
+    await expect(page.locator(".app-header")).toHaveCount(1);
+    await expect(
+      page.getByRole("button", { name: "Send ↗", exact: true }),
+    ).toBeInViewport();
+    await page.screenshot({
+      path: "artifacts/modern-ui-retina.png",
+      animations: "disabled",
+    });
+  });
+});
+
+test("empty and malformed JSON responses keep the original data and show clear feedback", async ({
+  page,
+}) => {
+  let sent = 0;
+  await openWorkspace(page, {
+    send: async () => ({
+      ...response,
+      body: ++sent === 1 ? "" : "{broken",
+      size: sent === 1 ? 0 : 7,
+    }),
+  });
+  await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  await expect(
+    page.getByText("Empty response body", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  await expect(
+    page.getByText("Invalid JSON; showing the original response.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.locator(".response .cm-content")).toContainText("{broken");
+});
+
+test("HTTP methods are selected from a menu and custom methods require explicit confirmation", async ({
+  page,
+}) => {
+  await openWorkspace(page);
+  const method = page.getByRole("combobox", {
+    name: "HTTP method",
+    exact: true,
+  });
+  await method.selectOption("POST");
+  await expect(method).toHaveValue("POST");
+  await method.selectOption("DELETE");
+  await expect(method).toHaveValue("DELETE");
+  await method.selectOption("custom");
+  const custom = page.getByLabel("Custom HTTP method", { exact: true });
+  await custom.fill("NOT A TOKEN");
+  await page.getByRole("button", { name: "Apply method", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("valid HTTP method");
+  await custom.fill("PROPFIND");
+  await page.getByRole("button", { name: "Apply method", exact: true }).click();
+  await expect(method.locator("option:checked")).toHaveText("PROPFIND");
+  await expect(custom).toBeHidden();
+});
+
+test("temporary requests send without entering a collection and save only to an explicit destination", async ({
+  page,
+}) => {
+  const backend = await openWorkspace(page, {
+    configure: (w) => {
+      w.collections.push({
+        ...w.collections[0],
+        id: "other",
+        name: "Other API",
+      });
+    },
+  });
+  await page.getByRole("button", { name: "New request", exact: true }).click();
+  await page.getByLabel("Request name").fill("Temporary test");
+  await page.getByLabel("Request URL").fill("https://example.test/temporary");
+  await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  await expect(page.locator(".metrics b")).toHaveText(
+    "500 Internal Server Error",
+  );
+  expect(backend.read().items).toHaveLength(1);
+  await expect(page.locator(".request-location")).toHaveText(
+    "Temporary request",
+  );
+  await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
+  await expect(page.getByLabel("Save location")).toHaveValue("");
+  await expect(
+    page.getByRole("button", { name: "Save request", exact: true }),
+  ).toBeDisabled();
+  await page.getByLabel("Save location").selectOption("c:other");
+  await page.getByRole("button", { name: "Save request", exact: true }).click();
+  await expect(page.locator(".request-location")).toHaveText("Other API");
+  expect(
+    backend.read().items.find((item) => item.name === "Temporary test")
+      ?.collectionId,
+  ).toBe("other");
+});
+
+test("adding within a folder fixes the destination at creation even after resource selection changes", async ({
+  page,
+}) => {
+  const backend = await openWorkspace(page, {
+    configure: (w) => {
+      w.items.push({
+        id: "folder",
+        collectionId: "collection",
+        parentId: null,
+        kind: "folder",
+        name: "Child folder",
+        order: 1,
+        auth: { type: "inherit" },
+        request: null,
+        metadata: null,
+      });
+      w.collections.push({
+        ...w.collections[0],
+        id: "other",
+        name: "Other API",
+      });
+    },
+  });
+  await showSidebar(page);
+  await page
+    .getByRole("button", { name: "Add request to Child folder", exact: true })
+    .click();
+  await expect(page.locator(".request-location")).toHaveText(
+    "API / Child folder",
+  );
+  await page.getByLabel("Request name").fill("Scoped request");
+  await page.getByRole("button", { name: "▣ Other API", exact: true }).click();
+  await page.getByRole("button", { name: "Close ×", exact: true }).click();
+  await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
+  await expect
+    .poll(
+      () =>
+        backend.read().items.find((item) => item.name === "Scoped request")
+          ?.parentId,
+    )
+    .toBe("folder");
+  expect(
+    backend.read().items.find((item) => item.name === "Scoped request")
+      ?.collectionId,
+  ).toBe("collection");
+});
+
+test("request identity, new request, search and Console belong to their visible scopes", async ({
+  page,
+}) => {
+  await openWorkspace(page, { openSavedRequest: false });
+  await expect(
+    page
+      .locator(".app-header")
+      .getByRole("button", { name: "Search requests" }),
+  ).toHaveCount(0);
+  await expect(
+    page.locator(".app-header").getByRole("button", { name: "New request" }),
+  ).toHaveCount(0);
+  await expect(page.locator(".app-header").getByRole("textbox")).toHaveCount(0);
+  await expect(
+    page
+      .locator(".request-tabs")
+      .getByRole("button", { name: "New request", exact: true }),
+  ).toBeInViewport();
+  await expect(
+    page.locator(".request-identity").getByLabel("Request name"),
+  ).toBeVisible();
+  await expect(page.locator("aside .search")).toBeVisible();
+  await page.locator("aside .search").fill("not found");
+  await expect(
+    page.getByText("No matching requests.", { exact: true }),
+  ).toBeVisible();
+  await page.locator("aside .search").fill("");
+  await page
+    .locator(".workspace-status")
+    .getByRole("button", { name: "⌘ Console", exact: true })
+    .click();
+  await expect(page.locator(".console")).toBeVisible();
+});
+
+test("request tab switching restores configuration and synchronizes the resource highlight", async ({
+  page,
+}) => {
+  await openWorkspace(page);
+  await page.getByRole("button", { name: "Body", exact: true }).click();
+  await page.getByRole("button", { name: "New request", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Params", exact: true }),
+  ).toHaveAttribute("aria-expanded", "true");
+  await page
+    .getByRole("button", { name: "Request tab: Users", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Body", exact: true }),
+  ).toHaveAttribute("aria-expanded", "true");
+  await showSidebar(page);
+  await expect(page.locator(".tree-row.selected")).toHaveText("GETUsers");
+  await page.getByRole("button", { name: "Body", exact: true }).click();
+  await expect(page.locator(".editor-content")).toBeVisible();
 });
