@@ -1,7 +1,14 @@
 import i18n from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { Workspace, RequestSpec, ResponseResult } from "../types";
+import type {
+  Workspace,
+  RequestSpec,
+  ResponseResult,
+  ExecutionRecord,
+  McpConfig,
+  McpStatus,
+} from "../types";
 export const api = {
   bootstrap: () =>
     invoke<{ workspace: Workspace; drafts: RequestSpec[]; history: any[] }>(
@@ -14,6 +21,19 @@ export const api = {
   send: (request: RequestSpec, executionId: string) =>
     invoke<ResponseResult>("send_request", { request, executionId }),
   cancel: (executionId: string) => invoke("cancel_request", { executionId }),
+  cancelExecution: (id: string) =>
+    invoke("cancel_request", { executionId: id }),
+  mcpStatus: () => invoke<McpStatus | null>("mcp_status"),
+  mcpConfigure: (config: McpConfig) =>
+    invoke<McpStatus | null>("mcp_configure", { config }),
+  mcpConnectionConfig: () =>
+    invoke<Record<string, unknown> | null>("mcp_connection_config"),
+  execution: (id: string) =>
+    invoke<ExecutionRecord | null>("get_execution", { id }),
+  executions: async (activeOnly = false) =>
+    (await invoke<ExecutionRecord[] | null>("list_executions", {
+      activeOnly,
+    })) ?? [],
   preview: (request: RequestSpec) =>
     invoke<any>("preview_request", { request }),
   history: () => invoke<any[]>("get_history"),

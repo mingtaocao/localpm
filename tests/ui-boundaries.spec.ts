@@ -30,6 +30,14 @@ test("secret editing commits the complete value on blur", async ({ page }) => {
     };
   });
   await page.goto("/");
+  if (
+    await page
+      .getByRole("button", { name: "Show requests", exact: true })
+      .count()
+  )
+    await page
+      .getByRole("button", { name: "Show requests", exact: true })
+      .click();
   await page
     .getByRole("button", { name: "Global variables", exact: true })
     .click();
@@ -95,6 +103,14 @@ test("10000 requests use bounded DOM and searchable virtual tree", async ({
     };
   });
   await page.goto("/");
+  if (
+    await page
+      .getByRole("button", { name: "Show requests", exact: true })
+      .count()
+  )
+    await page
+      .getByRole("button", { name: "Show requests", exact: true })
+      .click();
   await expect(
     page.getByRole("button", { name: "GET Request 0", exact: true }),
   ).toBeVisible();
@@ -126,6 +142,14 @@ test("workspace divider resizes, supports keyboard, and restores its width", asy
     };
   });
   await page.goto("/");
+  if (
+    await page
+      .getByRole("button", { name: "Show requests", exact: true })
+      .count()
+  )
+    await page
+      .getByRole("button", { name: "Show requests", exact: true })
+      .click();
   const divider = page.getByRole("separator", {
     name: "Resize workspace panel",
   });
@@ -145,10 +169,18 @@ test("workspace divider resizes, supports keyboard, and restores its width", asy
   ).toBe("380");
 
   await page.reload();
+  await expect(
+    page.getByRole("button", { name: "⚙ Settings", exact: true }),
+  ).toBeVisible();
+  const showRequests = page.getByRole("button", {
+    name: "Show requests",
+    exact: true,
+  });
+  if (await showRequests.count()) await showRequests.click();
   await expect(page.locator("aside")).toHaveCSS("width", "380px");
   await divider.focus();
   await divider.press("ArrowLeft");
   await expect(page.locator("aside")).toHaveCSS("width", "364px");
   await divider.press("Home");
-  await expect(page.locator("aside")).toHaveCSS("width", "266px");
+  await expect(page.locator("aside")).toHaveCSS("width", "260px");
 });

@@ -73,7 +73,7 @@ npm run build
 cargo fmt --manifest-path src-tauri/Cargo.toml --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
-cargo build --manifest-path src-tauri/Cargo.toml --example test_bridge
+cargo build --manifest-path src-tauri/Cargo.toml --examples
 npm run test:e2e
 ```
 

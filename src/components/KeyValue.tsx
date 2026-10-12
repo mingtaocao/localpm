@@ -16,12 +16,14 @@ export function KeyValue({
     onChange(rows.map((r, n) => (n === i ? { ...r, ...p } : r)));
   }
   return (
-    <div className="kv">
+    <div className={`kv ${secrets ? "kv-secrets" : ""}`}>
       <div className="kv-label">
-        {tr("ENABLED")}
+        <span title={tr("ENABLED")}>✓</span>
         <span>{tr("KEY")}</span>
         <span>{tr("VALUE")}</span>
         <span>{tr("DESCRIPTION")}</span>
+        {secrets && <span>{tr("Secret")}</span>}
+        <span />
       </div>
       {rows.map((r, i) => (
         <div className="kv-row" key={i}>

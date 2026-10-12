@@ -1,9 +1,30 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+
+async function showSidebar(page: Page) {
+  await expect(
+    page.getByRole("button", { name: "⚙ Settings", exact: true }),
+  ).toBeVisible();
+  const show = page.getByRole("button", { name: "Show requests", exact: true });
+  if (await show.count()) await show.click();
+}
+
+async function saveRequest(page: Page) {
+  await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
+  if (await page.getByLabel("Save location", { exact: true }).isVisible()) {
+    await page
+      .getByLabel("Save location", { exact: true })
+      .selectOption({ index: 1 });
+    await page
+      .getByRole("button", { name: "Save request", exact: true })
+      .click();
+  }
+}
+
 test("full UI workflow using real Rust HTTP and SQLite, including backend restart", async ({
   page,
 }) => {
@@ -54,7 +75,13 @@ test("full UI workflow using real Rust HTTP and SQLite, including backend restar
   });
   try {
     await page.goto("/");
-    await expect(page.getByText("Your APIs. Your machine.")).toBeVisible();
+    await expect(page.getByLabel("Request URL", { exact: true })).toHaveValue(
+      "",
+    );
+    await expect(
+      page.getByRole("button", { name: "Send ↗", exact: true }),
+    ).toBeVisible();
+    await showSidebar(page);
     await page
       .getByRole("button", { name: "＋ Collection", exact: true })
       .click();
@@ -65,7 +92,7 @@ test("full UI workflow using real Rust HTTP and SQLite, including backend restar
     await page.getByRole("button", { name: "New request in folder" }).click();
     await page.getByLabel("Request name").fill("Saved echo");
     await page.getByLabel("Request URL").fill("http://127.0.0.1:47831/echo");
-    await page.getByRole("button", { name: "Save ⌘S" }).click();
+    await saveRequest(page);
     await page.getByRole("button", { name: "Send ↗" }).click();
     await expect(page.getByText("200 OK", { exact: true })).toBeVisible();
     await page
@@ -75,6 +102,9 @@ test("full UI workflow using real Rust HTTP and SQLite, including backend restar
       .getByRole("button", { name: "＋ Environment", exact: true })
       .click();
     await page.getByLabel("Name", { exact: true }).fill("DEV");
+    await page
+      .getByRole("button", { name: "Use environment", exact: true })
+      .click();
     await page.getByRole("button", { name: "＋ Add row", exact: true }).click();
     await page.getByLabel("Key 1", { exact: true }).fill("host");
     await page
@@ -82,7 +112,7 @@ test("full UI workflow using real Rust HTTP and SQLite, including backend restar
       .fill("http://127.0.0.1:47831");
     await page.getByRole("button", { name: "Close ×" }).click();
     await page.getByLabel("Request URL").fill("{{host}}/echo");
-    await page.getByLabel("HTTP method").fill("POST");
+    await page.getByLabel("HTTP method").selectOption("POST");
     await page
       .getByRole("button", { name: "Headers", exact: true })
       .first()
@@ -96,7 +126,7 @@ test("full UI workflow using real Rust HTTP and SQLite, including backend restar
     await page
       .locator(".request-editor .cm-content")
       .fill('{"message":"acceptance"}');
-    await page.getByRole("button", { name: "Save ⌘S" }).click();
+    await saveRequest(page);
     await page.getByRole("button", { name: "Send ↗" }).click();
     await expect(page.locator(".response .cm-content")).toContainText(
       "acceptance",
@@ -157,6 +187,7 @@ test("full UI workflow using real Rust HTTP and SQLite, including backend restar
     });
     start();
     await page.reload();
+    await showSidebar(page);
     await expect(
       page.locator(".collection").filter({ hasText: "Acceptance API" }),
     ).toBeVisible();

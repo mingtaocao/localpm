@@ -12,7 +12,58 @@ impl Storage {
     pub fn open(path: &Path) -> Result<Self> {
         let db = Connection::open(path).map_err(err)?;
         db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY); INSERT OR IGNORE INTO schema_migrations VALUES(1); CREATE TABLE IF NOT EXISTS workspaces(id TEXT PRIMARY KEY,name TEXT NOT NULL,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS collections(id TEXT PRIMARY KEY,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS collection_items(id TEXT PRIMARY KEY,collection_id TEXT,parent_id TEXT,document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY,item_id TEXT UNIQUE,request_json TEXT,revision INTEGER NOT NULL DEFAULT 1); CREATE TABLE IF NOT EXISTS environments(id TEXT PRIMARY KEY,document TEXT); CREATE TABLE IF NOT EXISTS variables(id TEXT PRIMARY KEY,document TEXT); CREATE TABLE IF NOT EXISTS settings(id TEXT PRIMARY KEY,document TEXT); CREATE TABLE IF NOT EXISTS cookies(id TEXT PRIMARY KEY,document TEXT); CREATE TABLE IF NOT EXISTS drafts(id TEXT PRIMARY KEY,document TEXT); CREATE TABLE IF NOT EXISTS history(id INTEGER PRIMARY KEY AUTOINCREMENT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,snapshot TEXT,response TEXT);").map_err(err)?;
+        db.execute_batch("CREATE TABLE IF NOT EXISTS executions(id TEXT PRIMARY KEY,started_at INTEGER NOT NULL,status TEXT NOT NULL,document TEXT NOT NULL); INSERT OR IGNORE INTO schema_migrations VALUES(2);").map_err(err)?;
         Ok(Self { db: Mutex::new(db) })
+    }
+    pub fn setting(&self, id: &str) -> Result<Option<Value>> {
+        let db = self.db.lock().map_err(err)?;
+        match db.query_row("SELECT document FROM settings WHERE id=?1", [id], |r| {
+            r.get::<_, String>(0)
+        }) {
+            Ok(text) => serde_json::from_str(&text).map(Some).map_err(err),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(err(e)),
+        }
+    }
+    pub fn save_setting(&self, id: &str, value: &Value) -> Result<()> {
+        self.db.lock().map_err(err)?.execute("INSERT INTO settings VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET document=excluded.document",params![id,value.to_string()]).map_err(err)?;
+        Ok(())
+    }
+    pub fn save_execution(&self, value: &Value, limit: i64) -> Result<()> {
+        let mut db = self.db.lock().map_err(err)?;
+        let tx = db.transaction().map_err(err)?;
+        tx.execute("INSERT INTO executions VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET status=excluded.status,document=excluded.document",params![value["id"].as_str().ok_or_else(||AppError::new("INVALID_EXECUTION","Missing execution id"))?,value["startedAt"].as_i64().unwrap_or(0),value["status"].as_str().unwrap_or("failed"),value.to_string()]).map_err(err)?;
+        if limit > 0 {
+            tx.execute("DELETE FROM executions WHERE status != 'running' AND id NOT IN (SELECT id FROM executions WHERE status != 'running' ORDER BY started_at DESC,rowid DESC LIMIT ?1)",[limit]).map_err(err)?;
+        }
+        tx.commit().map_err(err)
+    }
+    pub fn execution(&self, id: &str) -> Result<Option<Value>> {
+        let db = self.db.lock().map_err(err)?;
+        match db.query_row("SELECT document FROM executions WHERE id=?1", [id], |r| {
+            r.get::<_, String>(0)
+        }) {
+            Ok(text) => serde_json::from_str(&text).map(Some).map_err(err),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(err(e)),
+        }
+    }
+    pub fn executions(&self, active_only: bool) -> Result<Vec<Value>> {
+        let db = self.db.lock().map_err(err)?;
+        let mut statement = db.prepare("SELECT document FROM executions WHERE ?1=0 OR status='running' ORDER BY started_at DESC,rowid DESC LIMIT 1000").map_err(err)?;
+        let rows = statement
+            .query_map([active_only], |r| r.get::<_, String>(0))
+            .map_err(err)?;
+        rows.map(|r| serde_json::from_str(&r.map_err(err)?).map_err(err))
+            .collect()
+    }
+    pub fn interrupt_executions(&self) -> Result<()> {
+        for mut record in self.executions(true)? {
+            record["status"] = json!("failed");
+            record["error"] = json!({"code":"EXECUTION_INTERRUPTED","message":"Application stopped before this execution completed"});
+            self.save_execution(&record, 1000)?;
+        }
+        Ok(())
     }
     pub fn cookies(&self) -> Result<reqwest_cookie_store::CookieStore> {
         let db = self.db.lock().map_err(err)?;
@@ -142,12 +193,59 @@ impl Storage {
             .map_err(err)?
             .execute("DELETE FROM history", [])
             .map_err(err)?;
+        self.db
+            .lock()
+            .map_err(err)?
+            .execute("DELETE FROM executions WHERE status != 'running'", [])
+            .map_err(err)?;
         Ok(())
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn independent_mcp_settings_and_execution_recovery_survive_workspace_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("db");
+        {
+            let storage = Storage::open(&path).unwrap();
+            storage
+                .save_setting("mcp", &json!({"enabled":true,"readCollections":["c"]}))
+                .unwrap();
+            storage
+                .save_execution(
+                    &json!({"id":"running","startedAt":1,"status":"running"}),
+                    1000,
+                )
+                .unwrap();
+            storage
+                .save_execution(
+                    &json!({"id":"finished","startedAt":2,"status":"completed"}),
+                    1000,
+                )
+                .unwrap();
+            storage.save(&Workspace::default()).unwrap();
+        }
+        let storage = Storage::open(&path).unwrap();
+        assert_eq!(
+            storage.setting("mcp").unwrap().unwrap()["readCollections"],
+            json!(["c"])
+        );
+        storage.interrupt_executions().unwrap();
+        assert!(storage.executions(true).unwrap().is_empty());
+        assert_eq!(
+            storage.execution("running").unwrap().unwrap()["error"]["code"],
+            "EXECUTION_INTERRUPTED"
+        );
+        assert_eq!(
+            storage.execution("finished").unwrap().unwrap()["status"],
+            "completed"
+        );
+        storage.clear_history().unwrap();
+        assert!(storage.executions(false).unwrap().is_empty());
+        assert!(storage.setting("mcp").unwrap().is_some());
+    }
     #[test]
     fn migration_restart_draft_history() {
         let dir = tempfile::tempdir().unwrap();
@@ -179,7 +277,7 @@ mod tests {
                 .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r
                     .get::<_, i64>(0))
                 .unwrap(),
-            1
+            2
         );
     }
 }

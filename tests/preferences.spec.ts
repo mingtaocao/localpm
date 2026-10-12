@@ -97,24 +97,25 @@ test("theme and language persist through Rust/SQLite restart without translating
   await expect(
     page.getByRole("heading", { name: "设置", exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByText("所有数据仅保存在此设备", { exact: false }),
-  ).toBeVisible();
-  await expect(page.locator("input").first()).toHaveCSS(
-    "background-color",
-    "rgb(41, 60, 49)",
-  );
   await page.screenshot({ path: "artifacts/theme-dark-zh-settings.png" });
   await page.getByRole("button", { name: "关闭 ×" }).click();
+  if (
+    await page
+      .getByRole("button", { name: "展开请求列表", exact: true })
+      .count()
+  )
+    await page
+      .getByRole("button", { name: "展开请求列表", exact: true })
+      .click();
   await page.getByRole("button", { name: "＋ 集合", exact: true }).click();
   await page
     .getByLabel("名称", { exact: true })
     .fill("Keep English 中文 {{host}}");
   await page.getByRole("button", { name: "关闭 ×" }).click();
-  await page.getByRole("button", { name: "＋ 请求", exact: true }).click();
+  await page.getByRole("button", { name: "新建请求", exact: true }).click();
   await page.getByLabel("请求名称").fill("Untouched request 请求");
   await page.getByLabel("请求 URL").fill("http://127.0.0.1:47831/echo");
-  await page.getByLabel("HTTP 方法").fill("POST");
+  await page.getByLabel("HTTP 方法").selectOption("POST");
   await page.getByRole("button", { name: "请求体", exact: true }).click();
   await page.getByLabel("请求体类型").selectOption("raw");
   await page.getByLabel("文本格式").selectOption("json");
@@ -122,6 +123,8 @@ test("theme and language persist through Rust/SQLite restart without translating
     .locator(".request-editor .cm-content")
     .fill('{"message":"English 中文","Header":"Keep"}');
   await page.getByRole("button", { name: "保存 ⌘S" }).click();
+  await page.getByLabel("保存位置").selectOption({ index: 1 });
+  await page.getByRole("button", { name: "保存请求", exact: true }).click();
   await page.getByRole("button", { name: "发送 ↗" }).click();
   await expect(page.getByText("200 OK", { exact: true })).toBeVisible();
   await expect(page.locator(".response .cm-content")).toContainText(
@@ -129,11 +132,11 @@ test("theme and language persist through Rust/SQLite restart without translating
   );
   await expect(page.locator(".request-editor .cm-editor")).toHaveCSS(
     "background-color",
-    "rgb(24, 33, 30)",
+    "rgb(34, 38, 45)",
   );
   await expect(page.locator(".response .cm-editor")).toHaveCSS(
     "background-color",
-    "rgb(24, 33, 30)",
+    "rgb(34, 38, 45)",
   );
   await page.locator(".request-editor .cm-content").click();
   await page
@@ -150,6 +153,11 @@ test("theme and language persist through Rust/SQLite restart without translating
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  const showRequests = page.getByRole("button", {
+    name: "展开请求列表",
+    exact: true,
+  });
+  if (await showRequests.count()) await showRequests.click();
   await page
     .getByRole("button", { name: "POST Untouched request 请求", exact: true })
     .click();

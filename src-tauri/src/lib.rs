@@ -1,106 +1,30 @@
 pub mod domain;
 pub mod http;
+pub mod mcp;
 pub mod postman;
 pub mod security;
+pub mod service;
 pub mod storage;
 pub mod variables;
 #[cfg(target_os = "windows")]
 pub mod windows_proxy;
 use domain::*;
 use serde_json::{json, Value};
+use std::sync::Arc;
 use tauri::{Emitter, Manager};
 struct AppState {
-    storage: storage::Storage,
-    http: http::HttpEngine,
+    service: Arc<service::RequestService>,
+    mcp: Arc<mcp::McpController>,
 }
 #[tauri::command]
 fn app_bootstrap(state: tauri::State<AppState>) -> Result<Value> {
     Ok(
-        json!({"workspace":state.storage.load()?,"drafts":state.storage.drafts()?,"history":state.storage.history()?}),
+        json!({"workspace":state.service.storage.load()?,"drafts":state.service.storage.drafts()?,"history":state.service.storage.history()?}),
     )
 }
-fn secure_metadata(metadata: &mut Value, field: &str, pairs: &[Pair]) {
-    if let Some(entries) = metadata[field].as_array_mut() {
-        for entry in entries {
-            if pairs.iter().any(|p| p.is_secret && entry["key"] == p.key) {
-                entry["value"] = json!("")
-            }
-        }
-    }
-}
-fn secure_pairs(pairs: &mut [Pair]) -> Result<()> {
-    for p in pairs {
-        if p.is_secret && !p.value.is_empty() {
-            let r = p
-                .secret_ref
-                .clone()
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-            keyring::Entry::new("LocalPostman", &r)
-                .and_then(|e| e.set_password(&p.value))
-                .map_err(|_| {
-                    AppError::new(
-                        "SECRET_STORE_FAILED",
-                        "Could not save secret to OS credential store",
-                    )
-                })?;
-            p.secret_ref = Some(r);
-            p.value.clear()
-        }
-    }
-    Ok(())
-}
-fn secure_proxy(settings: &mut Value) -> Result<()> {
-    if let Some(address) = settings["proxy"]["url"].as_str() {
-        if let Ok(parsed) = url::Url::parse(address) {
-            if !parsed.username().is_empty() || parsed.password().is_some() {
-                return Err(AppError::new(
-                    "INVALID_PROXY",
-                    "Use the dedicated proxy username and password fields",
-                ));
-            }
-        }
-    }
-
-    if let Some(p) = settings["proxy"]["password"]
-        .as_str()
-        .filter(|s| !s.is_empty())
-    {
-        let r = settings["proxy"]["secretRef"]
-            .as_str()
-            .map(str::to_string)
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        keyring::Entry::new("LocalPostman", &r)
-            .and_then(|e| e.set_password(p))
-            .map_err(|_| AppError::new("SECRET_STORE_FAILED", "Could not save proxy password"))?;
-        settings["proxy"]["secretRef"] = json!(r);
-        settings["proxy"]["credentialVersion"] = json!(uuid::Uuid::new_v4().to_string());
-        settings["proxy"]
-            .as_object_mut()
-            .unwrap()
-            .remove("password");
-    }
-    Ok(())
-}
 #[tauri::command]
-fn save_workspace(state: tauri::State<AppState>, mut workspace: Workspace) -> Result<Workspace> {
-    secure_pairs(&mut workspace.globals)?;
-    secure_proxy(&mut workspace.settings)?;
-    for c in &mut workspace.collections {
-        secure_pairs(&mut c.variables)?;
-        secure_metadata(&mut c.metadata, "variable", &c.variables);
-    }
-    for e in &mut workspace.environments {
-        secure_pairs(&mut e.variables)?;
-        secure_metadata(&mut e.metadata, "values", &e.variables);
-        secure_proxy(&mut e.settings)?
-    }
-    for i in &mut workspace.items {
-        if let Some(r) = &mut i.request {
-            secure_proxy(&mut r.settings)?
-        }
-    }
-    state.storage.save(&workspace)?;
-    Ok(workspace)
+fn save_workspace(state: tauri::State<AppState>, workspace: Workspace) -> Result<Workspace> {
+    state.service.save_workspace(workspace)
 }
 #[tauri::command]
 fn save_draft(
@@ -108,86 +32,54 @@ fn save_draft(
     id: String,
     request: Option<RequestSpec>,
 ) -> Result<()> {
-    let mut request = request;
-    if let Some(r) = &mut request {
-        secure_proxy(&mut r.settings)?;
-    }
-    state.storage.draft(&id, request.as_ref())
+    state.service.save_draft(&id, request)
 }
 #[tauri::command]
 fn preview_request(state: tauri::State<AppState>, request: RequestSpec) -> Result<Value> {
-    let p = http::prepare(&state.storage.load()?, &request)?;
-    let mut headers = p.headers.clone();
-    for (k, v) in &mut headers {
-        if ["authorization", "cookie", "proxy-authorization"].contains(&k.to_lowercase().as_str()) {
-            *v = "••••••••".into()
-        } else {
-            *v = variables::redact(v, &p.vars)
-        }
-    }
-    let sources: Value = p
-        .vars
-        .iter()
-        .map(|(k, v)| {
-            (
-                k.clone(),
-                json!({"scope":v.scope,"value":if v.secret{"••••••••"}else{&v.value}}),
-            )
-        })
-        .collect();
-    Ok(
-        json!({"url":variables::redact(&p.url,&p.vars),"headers":headers,"body":variables::redact(&p.body.to_string(),&p.vars),"variables":sources,"proxy":p.settings["proxy"]["mode"]}),
-    )
+    state.service.preview(&request)
 }
 #[tauri::command]
 async fn send_request(
     state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
     request: RequestSpec,
     execution_id: String,
 ) -> Result<Response> {
-    let ws = state.storage.load()?;
-    let prepared = http::prepare(&ws, &request)?;
-    let vars = prepared.vars.clone();
-    let emit = |payload| {
-        let _ = app.emit("request-diagnostic", payload);
-    };
-    let result = state
-        .http
-        .execute_with_diagnostics(prepared, execution_id, Some(&emit))
-        .await;
-    state.storage.save_cookies(
-        &*state
-            .http
-            .jar
-            .lock()
-            .map_err(|_| AppError::new("COOKIE_ERROR", "Cookie store locked"))?,
-    )?;
-    let snapshot = security::history_snapshot(&request, &vars);
-    let response = match &result {
-        Ok(r) => {
-            json!({"status":r.status,"duration":r.duration,"size":r.size,"body":security::response_preview(&r.body,&vars)})
-        }
-        Err(e) => json!({"error":e}),
-    };
-    state.storage.add_history(
-        &snapshot,
-        &response,
-        ws.settings["historyLimit"].as_i64().unwrap_or(1000),
-    )?;
-    result
+    let workspace = state.service.storage.load()?;
+    let context = service::ExecutionContext::from_workspace(&workspace, &request, "manual");
+    let prepared = http::prepare(&workspace, &request)?;
+    state.service.execute(prepared, execution_id, context).await
 }
 #[tauri::command]
 fn cancel_request(state: tauri::State<AppState>, execution_id: String) {
-    state.http.cancel(&execution_id)
+    state.service.cancel(&execution_id)
+}
+#[tauri::command]
+fn mcp_status(state: tauri::State<AppState>) -> Value {
+    state.mcp.status()
+}
+#[tauri::command]
+async fn mcp_configure(state: tauri::State<'_, AppState>, config: mcp::McpConfig) -> Result<Value> {
+    state.mcp.configure(config).await
+}
+#[tauri::command]
+fn mcp_connection_config(state: tauri::State<AppState>) -> Result<Value> {
+    state.mcp.connection_config()
+}
+#[tauri::command]
+fn get_execution(state: tauri::State<AppState>, id: String) -> Result<Option<Value>> {
+    state.service.storage.execution(&id)
+}
+#[tauri::command]
+fn list_executions(state: tauri::State<AppState>, active_only: bool) -> Result<Vec<Value>> {
+    state.service.storage.executions(active_only)
 }
 #[tauri::command]
 fn get_history(state: tauri::State<AppState>) -> Result<Vec<Value>> {
-    state.storage.history()
+    state.service.storage.history()
 }
 #[tauri::command]
 fn clear_history(state: tauri::State<AppState>) -> Result<()> {
-    state.storage.clear_history()
+    state.service.storage.clear_history()
 }
 #[tauri::command]
 fn import_file(state: tauri::State<AppState>, path: String) -> Result<Workspace> {
@@ -195,9 +87,9 @@ fn import_file(state: tauri::State<AppState>, path: String) -> Result<Workspace>
         .map_err(|_| AppError::new("IMPORT_INVALID_FORMAT", "Cannot read JSON file"))?;
     let value = serde_json::from_str(&text)
         .map_err(|_| AppError::new("IMPORT_INVALID_FORMAT", "Invalid JSON"))?;
-    let mut ws = state.storage.load()?;
+    let mut ws = state.service.storage.load()?;
     postman::import(value, &mut ws)?;
-    state.storage.save(&ws)?;
+    state.service.storage.save(&ws)?;
     Ok(ws)
 }
 #[tauri::command]
@@ -207,7 +99,7 @@ fn export_file(
     kind: String,
     path: String,
 ) -> Result<()> {
-    let ws = state.storage.load()?;
+    let ws = state.service.storage.load()?;
     let value = if kind == "environment" {
         postman::export_environment(
             ws.environments
@@ -224,6 +116,7 @@ fn export_file(
 #[tauri::command]
 fn get_cookies(state: tauri::State<AppState>) -> Result<Value> {
     let jar = state
+        .service
         .http
         .jar
         .lock()
@@ -237,12 +130,13 @@ fn get_cookies(state: tauri::State<AppState>) -> Result<Value> {
 #[tauri::command]
 fn clear_cookies(state: tauri::State<AppState>) -> Result<()> {
     let mut jar = state
+        .service
         .http
         .jar
         .lock()
         .map_err(|_| AppError::new("COOKIE_ERROR", "Cookie store locked"))?;
     jar.clear();
-    state.storage.save_cookies(&jar)
+    state.service.storage.save_cookies(&jar)
 }
 #[tauri::command]
 fn save_response(state: tauri::State<AppState>, source: String, path: String) -> Result<()> {
@@ -251,6 +145,7 @@ fn save_response(state: tauri::State<AppState>, source: String, path: String) ->
         .map_err(|_| AppError::new("FILE_NOT_FOUND", "Response cache unavailable"))?;
     if !source.starts_with(
         state
+            .service
             .http
             .temp
             .canonicalize()
@@ -279,9 +174,6 @@ pub fn run() {
             let storage = storage::Storage::open(&data.join("local-postman.db"))
                 .map_err(|e| std::io::Error::other(e.message))?;
             let http = http::HttpEngine::new(data.join("temp"));
-            *http.jar.lock().unwrap() = storage
-                .cookies()
-                .map_err(|e| std::io::Error::other(e.message))?;
             let backup_dir = data.join("backups");
             std::fs::create_dir_all(&backup_dir)?;
             let day = std::time::SystemTime::now()
@@ -302,11 +194,29 @@ pub fn run() {
             for entry in backups.iter().take(backups.len().saturating_sub(7)) {
                 std::fs::remove_file(entry.path())?;
             }
-            app.manage(AppState { storage, http });
+            let handle = app.handle().clone();
+            let service = Arc::new(
+                service::RequestService::new(storage, http)
+                    .map_err(|e| std::io::Error::other(e.message))?
+                    .with_emitter(Arc::new(move |event, value| {
+                        let _ = handle.emit(event, value);
+                    })),
+            );
+            let mcp = mcp::McpController::new(service.clone());
+            let restore = mcp.clone();
+            tauri::async_runtime::spawn(async move {
+                restore.restore().await;
+            });
+            app.manage(AppState { service, mcp });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             app_bootstrap,
+            mcp_status,
+            mcp_configure,
+            mcp_connection_config,
+            get_execution,
+            list_executions,
             save_workspace,
             save_draft,
             preview_request,

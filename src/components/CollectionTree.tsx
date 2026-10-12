@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { readLayout, saveLayout, layoutNumber } from "../stores/layout";
 import type { Workspace, Item } from "../types";
 export function CollectionTree({
   workspace,
@@ -7,16 +8,31 @@ export function CollectionTree({
   selected,
   onSelect,
   onMove,
+  onAddRequest,
 }: {
   workspace: Workspace;
   search: string;
   selected: string;
   onSelect: (id: string, item?: Item) => void;
   onMove: (source: string, target: string) => void;
+  onAddRequest: (collectionId: string, parentId: string | null) => void;
 }) {
   const { t: tr } = useTranslation();
-  const [scroll, setScroll] = useState(0);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const treeRef = useRef<HTMLDivElement>(null);
+  const [scroll, setScroll] = useState(() =>
+    layoutNumber("localpm-tree-scroll", 0),
+  );
+  useEffect(() => {
+    if (treeRef.current)
+      treeRef.current.scrollTop = layoutNumber("localpm-tree-scroll", 0);
+  }, []);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(readLayout("localpm-tree-collapsed") ?? "[]"));
+    } catch {
+      return new Set();
+    }
+  });
   const rows = useMemo(() => {
     const byParent = new Map<string, Item[]>();
     for (const i of workspace.items) {
@@ -76,7 +92,11 @@ export function CollectionTree({
   return (
     <div
       className="tree"
-      onScroll={(e) => setScroll(e.currentTarget.scrollTop)}
+      ref={treeRef}
+      onScroll={(e) => {
+        setScroll(e.currentTarget.scrollTop);
+        saveLayout("localpm-tree-scroll", String(e.currentTarget.scrollTop));
+      }}
     >
       <div style={{ height: rows.length * 36, position: "relative" }}>
         {visible.map((row, index) => (
@@ -103,14 +123,19 @@ export function CollectionTree({
               <button
                 className="collapse"
                 aria-label={tr(
-                  collapsed.has(row.id) ? "Collapse %{name}" : "Expand %{name}",
+                  collapsed.has(row.id) ? "Expand %{name}" : "Collapse %{name}",
                   { name: row.name },
                 )}
+                aria-expanded={!collapsed.has(row.id)}
                 onClick={() =>
                   setCollapsed((prev) => {
                     const next = new Set(prev);
                     if (next.has(row.id)) next.delete(row.id);
                     else next.add(row.id);
+                    saveLayout(
+                      "localpm-tree-collapsed",
+                      JSON.stringify([...next]),
+                    );
                     return next;
                   })
                 }
@@ -119,16 +144,40 @@ export function CollectionTree({
               </button>
             )}
             <button
+              title={row.name}
               draggable={!!row.item}
               onDragStart={(e) => e.dataTransfer.setData("text/plain", row.id)}
               className={row.item ? "tree-item" : "collection"}
               onClick={() => onSelect(row.id, row.item)}
             >
-              <span className={row.item?.request ? "method" : "folder"}>
+              <span
+                className={row.item?.request ? "method" : "folder"}
+                data-method={row.item?.request?.method}
+              >
                 {row.item?.request?.method ?? (row.item ? "▾" : "▣")}
               </span>
               <span>{row.name}</span>
             </button>
+            {(!row.item || row.item.kind === "folder") && (
+              <button
+                className="resource-add-request"
+                title={tr("Add request to %{name}", { name: row.name })}
+                aria-label={tr("Add request to %{name}", { name: row.name })}
+                onClick={() => {
+                  setCollapsed((prev) => {
+                    const next = new Set(prev);
+                    next.delete(row.id);
+                    return next;
+                  });
+                  onAddRequest(
+                    row.item?.collectionId ?? row.id,
+                    row.item?.id ?? null,
+                  );
+                }}
+              >
+                ＋
+              </button>
+            )}
           </div>
         ))}
       </div>
