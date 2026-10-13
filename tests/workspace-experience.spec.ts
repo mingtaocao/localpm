@@ -430,7 +430,7 @@ test("response formats, headers, cookies and save remain usable with a minimum-h
   await expect(body).toHaveText(prettyBody, { useInnerText: true });
 });
 
-test("minimum window retains request, response and console controls, including resize and expand", async ({
+test("minimum window retains request, response and console controls, including compact controls and resize", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 900, height: 640 });
@@ -471,7 +471,9 @@ test("minimum window retains request, response and console controls, including r
     await expect(page.locator(".response .cm-content")).toBeInViewport();
   };
   await checkLayout();
-  await page.getByRole("button", { name: "Expand", exact: true }).click();
+  await page
+    .getByRole("separator", { name: "Resize console", exact: true })
+    .press("ArrowUp");
   await checkLayout();
   await page
     .getByRole("separator", { name: "Resize console", exact: true })
@@ -479,7 +481,9 @@ test("minimum window retains request, response and console controls, including r
   await checkLayout();
   await page.setViewportSize({ width: 1280, height: 850 });
   await checkLayout();
-  await page.getByRole("button", { name: "Expand", exact: true }).click();
+  await page
+    .getByRole("separator", { name: "Resize console", exact: true })
+    .press("ArrowUp");
   await checkLayout();
   await page.setViewportSize({ width: 900, height: 640 });
   await checkLayout();
@@ -879,7 +883,9 @@ test.describe("high DPI visual acceptance", () => {
     await page.getByRole("button", { name: "Send ↗", exact: true }).click();
     await openMore(page);
     await page.getByRole("button", { name: "⌘ Console", exact: false }).click();
-    await page.getByRole("button", { name: "Expand", exact: true }).click();
+    await page
+      .getByRole("separator", { name: "Resize console", exact: true })
+      .press("ArrowUp");
     await page.locator(".console-entry summary").click();
     await expect(page.locator(".console-general")).toBeVisible();
     await expect(page.locator(".app")).toHaveCount(1);
@@ -1079,3 +1085,57 @@ test("request tab switching restores configuration and synchronizes the resource
   await page.getByRole("button", { name: "Body", exact: true }).click();
   await expect(page.locator(".editor-content")).toBeVisible();
 });
+
+for (const theme of ["light", "dark"]) {
+  test(`${theme}: Console is compact and all dividers stay thin with usable drag targets`, async ({
+    page,
+  }) => {
+    await openWorkspace(page, { theme });
+    await showSidebar(page);
+    await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+    await openMore(page);
+    await page.getByRole("button", { name: "⌘ Console", exact: false }).click();
+    const console = page.locator(".console");
+    await expect(console.locator(".console-toolbar button")).toHaveCount(2);
+    await expect(
+      console.locator("input, select, .console-column-heading"),
+    ).toHaveCount(0);
+    expect(
+      (await console.locator(".console-toolbar").boundingBox())!.height,
+    ).toBeLessThanOrEqual(38);
+    for (const name of [
+      "Resize workspace panel",
+      "Resize request and response",
+      "Resize console",
+    ]) {
+      const split = page.getByRole("separator", { name, exact: true });
+      const vertical = name === "Resize workspace panel";
+      await expect(split).toHaveCSS(vertical ? "width" : "height", "1px");
+      const box = (await split.boundingBox())!;
+      const before = Number(await split.getAttribute("aria-valuenow"));
+      // Start outside the visible 1px line, inside its transparent hit area.
+      const x = vertical ? box.x + 3 : box.x + box.width / 2;
+      const y = vertical ? box.y + 100 : box.y + 3;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + (vertical ? 24 : 0), y + (vertical ? 0 : 20));
+      await page.mouse.up();
+      expect(Number(await split.getAttribute("aria-valuenow"))).not.toBe(
+        before,
+      );
+    }
+    const row = console.locator("summary").first();
+    await row.focus();
+    await row.press("Enter");
+    await expect(console.locator(".console-details")).toBeVisible();
+    await expect(console.locator(".console-details")).toContainText(
+      "current-response",
+    );
+    await page.screenshot({ path: `artifacts/console-compact-${theme}.png` });
+    await console.getByRole("button", { name: "Clear", exact: true }).click();
+    await expect(console.locator(".console-entry")).toHaveCount(0);
+    await expect(
+      console.getByRole("button", { name: "Clear", exact: true }),
+    ).toBeDisabled();
+  });
+}

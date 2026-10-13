@@ -103,7 +103,7 @@ export default function App() {
     return () => observer.disconnect();
   }, [w !== null]);
   const tabHeight = 38;
-  const maxEditorHeight = Math.max(180, mainHeight - tabHeight - 6 - 160);
+  const maxEditorHeight = Math.max(180, mainHeight - tabHeight - 1 - 160);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = layoutNumber(SIDEBAR_STORAGE_KEY, DEFAULT_SIDEBAR_WIDTH);
     return clampSidebarWidth(

@@ -296,3 +296,85 @@ test("search, wrapping and font controls stay usable in a small workspace", asyn
   ).toBeGreaterThan(60);
   await page.screenshot({ path: "artifacts/editor-small.png" });
 });
+
+function luminance(color: string) {
+  const rgb = color
+    .match(/[\d.]+/g)!
+    .slice(0, 3)
+    .map(Number);
+  const linear = rgb.map((value) => {
+    const channel = value / 255;
+    return channel <= 0.04045
+      ? channel / 12.92
+      : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+}
+function contrast(a: string, b: string) {
+  const values = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (values[0] + 0.05) / (values[1] + 0.05);
+}
+for (const theme of ["light", "dark"]) {
+  test(`${theme}: text selections remain visible in inputs and focused or blurred editors`, async ({
+    page,
+  }) => {
+    await openEditors(page, theme);
+    const url = page.getByLabel("Request URL", { exact: true });
+    await url.focus();
+    await url.press(`${modifier}+a`);
+    const native = await url.evaluate((element) => {
+      const style = getComputedStyle(element, "::selection");
+      return {
+        background: style.backgroundColor,
+        text: style.color,
+        surface: getComputedStyle(element).backgroundColor,
+      };
+    });
+    expect(contrast(native.background, native.text)).toBeGreaterThanOrEqual(
+      4.5,
+    );
+    expect(contrast(native.background, native.surface)).toBeGreaterThanOrEqual(
+      2,
+    );
+    await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+    for (const scope of [".request-editor", ".response"]) {
+      const editor = page.locator(`${scope} .cm-content`);
+      await editor.click();
+      await editor.press(`${modifier}+a`);
+      const selection = page
+        .locator(`${scope} .cm-selectionBackground`)
+        .first();
+      await expect(selection).toBeVisible();
+      const colors = await selection.evaluate((element) => {
+        const content = element
+          .closest(".cm-editor")!
+          .querySelector(".cm-content")!;
+        return {
+          selection: getComputedStyle(element).backgroundColor,
+          surface: getComputedStyle(element.closest(".cm-editor")!)
+            .backgroundColor,
+          content: getComputedStyle(content).backgroundColor,
+          text: getComputedStyle(
+            content.querySelector(".cm-line span")!,
+            "::selection",
+          ).color,
+          activeLine: getComputedStyle(content.querySelector(".cm-activeLine")!)
+            .backgroundColor,
+        };
+      });
+      expect(contrast(colors.selection, colors.surface)).toBeGreaterThanOrEqual(
+        1.6,
+      );
+      expect(contrast(colors.selection, colors.text)).toBeGreaterThanOrEqual(
+        4.5,
+      );
+      expect(colors.content).toBe("rgba(0, 0, 0, 0)");
+      expect(colors.activeLine).toMatch(/^rgba\(.+, 0\.0/);
+      await page.screenshot({
+        path: `artifacts/selection-${theme}-${scope.slice(1)}.png`,
+      });
+      await url.focus();
+      await expect(selection).toHaveCSS("background-color", colors.selection);
+    }
+  });
+}

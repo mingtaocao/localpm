@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type PointerEvent } from "react";
+import { useEffect, useState, type PointerEvent } from "react";
 import { layoutNumber, saveLayout } from "../stores/layout";
 import { useTranslation } from "react-i18next";
 
@@ -47,7 +47,6 @@ export type ConsoleEntry = {
   errorDetail?: string;
 };
 
-type Filter = "all" | "http" | "network";
 const CONSOLE_HEIGHT_KEY = "localpm-console-height";
 const DEFAULT_CONSOLE_HEIGHT = 260;
 const MIN_CONSOLE_HEIGHT = 160;
@@ -62,7 +61,7 @@ function maxConsoleHeight() {
         (window.innerHeight >= 720 ? 240 : 194) -
         160 -
         38 -
-        6 -
+        1 -
         32,
     ),
   );
@@ -82,11 +81,8 @@ export function ConsolePanel({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const [filter, setFilter] = useState<Filter>("all");
-  const [query, setQuery] = useState("");
-  const [copied, setCopied] = useState(false);
-  const [copyError, setCopyError] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const [height, setHeight] = useState(() => {
     const saved = layoutNumber(CONSOLE_HEIGHT_KEY, DEFAULT_CONSOLE_HEIGHT);
     return clampConsoleHeight(saved > 0 ? saved : DEFAULT_CONSOLE_HEIGHT);
@@ -98,10 +94,7 @@ export function ConsolePanel({
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  const visibleHeight = Math.min(
-    expanded ? window.innerHeight * 0.7 : height,
-    maxHeight,
-  );
+  const visibleHeight = Math.min(height, maxHeight);
   const setSavedHeight = (nextHeight: number) => {
     const clamped = clampConsoleHeight(nextHeight);
     setHeight(clamped);
@@ -110,7 +103,6 @@ export function ConsolePanel({
   const onResizeStart = (event: PointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
     setDragging(true);
-    setExpanded(false);
   };
   const onResizeMove = (event: PointerEvent<HTMLDivElement>) => {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -123,18 +115,6 @@ export function ConsolePanel({
     setDragging(false);
     setSavedHeight(window.innerHeight - event.clientY);
   };
-  const visible = useMemo(
-    () =>
-      entries.filter((entry) => {
-        if (filter === "http" && !(entry.status && entry.status >= 400))
-          return false;
-        if (filter === "network" && !entry.error) return false;
-        return `${entry.method} ${entry.url} ${entry.status ?? ""} ${entry.error ?? ""}`
-          .toLowerCase()
-          .includes(query.toLowerCase());
-      }),
-    [entries, filter, query],
-  );
 
   return (
     <section
@@ -154,46 +134,25 @@ export function ConsolePanel({
         onPointerDown={onResizeStart}
         onPointerMove={onResizeMove}
         onPointerUp={onResizeEnd}
-        onPointerCancel={onResizeEnd}
+        onPointerCancel={() => setDragging(false)}
+        onLostPointerCapture={() => setDragging(false)}
         onDoubleClick={() => {
-          setExpanded(false);
           setSavedHeight(DEFAULT_CONSOLE_HEIGHT);
         }}
         onKeyDown={(event) => {
           if (event.key === "ArrowUp" || event.key === "ArrowDown") {
             event.preventDefault();
-            setExpanded(false);
             setSavedHeight(
               visibleHeight + (event.key === "ArrowUp" ? 30 : -30),
             );
           } else if (event.key === "Home") {
             event.preventDefault();
-            setExpanded(false);
             setSavedHeight(DEFAULT_CONSOLE_HEIGHT);
           }
         }}
       />
       <div className="console-toolbar">
         <strong>{t("Console")}</strong>
-        <input
-          aria-label={t("Search console")}
-          placeholder={t("Search URL, status or error")}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <select
-          aria-label={t("Filter console")}
-          value={filter}
-          onChange={(event) => setFilter(event.target.value as Filter)}
-        >
-          <option value="all">{t("All")}</option>
-          <option value="http">{t("HTTP errors")}</option>
-          <option value="network">{t("Network errors")}</option>
-        </select>
-        <span>{t("consoleEntries", { count: visible.length })}</span>
-        <button onClick={() => setExpanded(!expanded)}>
-          {expanded ? t("Restore") : t("Expand")}
-        </button>
         <button disabled={!entries.length} onClick={onClear}>
           {t("Clear")}
         </button>
@@ -201,17 +160,9 @@ export function ConsolePanel({
           ×
         </button>
       </div>
-      <div className="console-grid console-column-heading" aria-hidden="true">
-        <span>{t("Method")}</span>
-        <span>{t("Request URL")}</span>
-        <span>{t("Status")}</span>
-        <span>{t("Duration")}</span>
-        <span>{t("Size")}</span>
-        <span>{t("Timestamp")}</span>
-      </div>
       <div className="console-list">
-        {visible.length ? (
-          visible.map((entry) => {
+        {entries.length ? (
+          entries.map((entry) => {
             const problem = !!entry.error || (entry.status ?? 0) >= 400;
             return (
               <details
@@ -225,24 +176,27 @@ export function ConsolePanel({
                   <span className="console-url" title={entry.url}>
                     {entry.url}
                   </span>
-                  <b className={problem ? "console-failed" : ""}>
+                  <b
+                    title={t("Status")}
+                    className={problem ? "console-failed" : ""}
+                  >
                     {entry.phase === "pending"
                       ? t("Sending")
                       : entry.error
                         ? t("Failed")
                         : entry.status}
                   </b>
-                  <span>
+                  <span title={t("Duration")}>
                     {entry.duration === undefined
                       ? "…"
                       : `${entry.duration} ms`}
                   </span>
-                  <span>
+                  <span title={t("Size")}>
                     {entry.size === undefined
                       ? "—"
                       : `${(entry.size / 1024).toFixed(2)} KB`}
                   </span>
-                  <time>{entry.time}</time>
+                  <time title={t("Timestamp")}>{entry.time}</time>
                 </summary>
                 <div className="console-details">
                   <div className="console-detail-toolbar">
@@ -252,17 +206,21 @@ export function ConsolePanel({
                         : t("Request preparation pending or failed")}
                     </span>
                     <button
-                      onClick={() =>
+                      onClick={() => {
+                        setCopied(null);
+                        setCopyError(null);
                         void navigator.clipboard
                           .writeText(JSON.stringify(entry, null, 2))
-                          .then(() => setCopied(true))
-                          .catch(() => setCopyError(true))
-                      }
+                          .then(() => setCopied(entry.id))
+                          .catch(() => setCopyError(entry.id));
+                      }}
                     >
-                      {copied ? t("Copied") : t("Copy diagnostics")}
+                      {copied === entry.id
+                        ? t("Copied")
+                        : t("Copy diagnostics")}
                     </button>
                   </div>
-                  {copyError && (
+                  {copyError === entry.id && (
                     <p role="alert" className="console-failed">
                       {t("Copy failed")}
                     </p>
@@ -293,9 +251,6 @@ export function ConsolePanel({
                   <div className="console-columns">
                     <div>
                       <h4>{t("Request")}</h4>
-                      <p className="console-address">
-                        <b>{entry.method}</b> {entry.url}
-                      </p>
                       {entry.prepared && (
                         <>
                           <h5>{t("Headers")}</h5>
@@ -396,14 +351,6 @@ export function ConsolePanel({
                       </span>
                     </div>
                   )}
-                  {entry.duration !== undefined && (
-                    <div className="console-network">
-                      <h4>{t("Timing")}</h4>
-                      <span>
-                        {t("Observed duration")}: {entry.duration} ms
-                      </span>
-                    </div>
-                  )}
                   <small className="console-note">
                     {t(
                       "Request headers reflect the built request. Client cookies and transport headers may be added when sending.",
@@ -415,9 +362,7 @@ export function ConsolePanel({
           })
         ) : (
           <div className="console-empty">
-            {entries.length
-              ? t("No console entries match this filter.")
-              : t("No requests sent this session.")}
+            {t("No requests sent this session.")}
           </div>
         )}
       </div>
