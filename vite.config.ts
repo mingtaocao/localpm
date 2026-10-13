@@ -7,7 +7,15 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          editor: ["@uiw/react-codemirror", "@codemirror/lang-json"],
+          editor: [
+            "@codemirror/view",
+            "@codemirror/state",
+            "@codemirror/language",
+            "@codemirror/lang-json",
+            "@codemirror/lang-javascript",
+            "@codemirror/lang-html",
+            "@codemirror/lang-xml",
+          ],
         },
       },
     },
