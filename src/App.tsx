@@ -1,11 +1,18 @@
-import { editorPhrases } from "./i18n/editor";
 import { usePreferences } from "./stores/preferences";
 import { formatError } from "./i18n/errors";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
-import { useEffect, useRef, useState } from "react";
-import CodeMirror, { EditorState } from "@uiw/react-codemirror";
-import { json } from "@codemirror/lang-json";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CodeEditor } from "./components/editor/CodeEditor";
+import { EditorSessions } from "./components/editor/editorSessions";
+import type { EditorLanguage } from "./components/editor/editorExtensions";
+import {
+  defaultRequestView,
+  patchRequestView,
+  type RequestTab as Tab,
+  type RequestView,
+} from "./stores/requestTabs";
+import { responsePresentation } from "./components/editor/responsePresentation";
 import { api } from "./services/tauriApi";
 import { useWorkspace } from "./stores/workspace";
 import {
@@ -13,7 +20,6 @@ import {
   paramsFromUrl,
   urlFromParams,
   type RequestSpec,
-  type ResponseResult,
   type Pair,
   type HistoryEntry,
   type ExecutionRecord,
@@ -38,15 +44,6 @@ import { MoreMenu } from "./components/MoreMenu";
 import { readLayout, saveLayout, layoutNumber } from "./stores/layout";
 import { AnimatedCounter } from "./components/rare-ui/animated-counter";
 type SaveTarget = { collectionId: string; parentId: string | null };
-type Tab = {
-  request: RequestSpec;
-  dirty: boolean;
-  response?: ResponseResult;
-  responseContext?: { time: string; environment: string; url: string };
-  execution?: string;
-  error?: unknown;
-  saveState?: "saving" | "draft" | "saved" | "failed";
-};
 const DEFAULT_SIDEBAR_WIDTH = 260;
 const MIN_SIDEBAR_WIDTH = 220;
 const SIDEBAR_STORAGE_KEY = "local-postman.sidebar-width";
@@ -58,7 +55,6 @@ function clampSidebarWidth(width: number) {
 }
 export default function App() {
   const { t: tr } = useTranslation();
-  const phrases = EditorState.phrases.of(editorPhrases());
   const { theme, language, resolvedTheme } = usePreferences();
   const {
     workspace: w,
@@ -75,14 +71,11 @@ export default function App() {
   const [selected, setSelected] = useState("");
   const [editedEnvironmentId, setEditedEnvironmentId] = useState("");
   const [section, setSection] = useState("Collections");
-  const [editor, setEditor] = useState("Params");
-  const editorSelections = useRef(new Map<string, string>());
+  const [editorSessions] = useState(() => new EditorSessions());
   const [saveDestination, setSaveDestination] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(
     () => readLayout("localpm-sidebar-open") !== "false",
   );
-  const [responseTab, setResponseTab] = useState("Pretty");
-  const [responseFormat, setResponseFormat] = useState("Pretty");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [aiExecutions, setAiExecutions] = useState<ExecutionRecord[]>([]);
   const [viewedExecution, setViewedExecution] =
@@ -91,7 +84,6 @@ export default function App() {
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
   const [search, setSearch] = useState("");
-  const [headerSearch, setHeaderSearch] = useState("");
   const [modal, setModal] = useState("");
   const [cookies, setCookies] = useState<any[]>([]);
   const [preview, setPreview] = useState<any>(null);
@@ -139,11 +131,6 @@ export default function App() {
     if (topHeight !== null)
       saveLayout("localpm-editor-height", String(topHeight));
   }, [topHeight]);
-  const minEditorHeight = consoleOpen ? Math.min(240, maxEditorHeight) : 180;
-  const editorHeight = Math.max(
-    minEditorHeight,
-    Math.min(topHeight ?? (mainHeight - tabHeight) * 0.45, maxEditorHeight),
-  );
   const [consoleEntries, setConsoleEntries] = useState<ConsoleEntry[]>([]);
   useEffect(() => {
     let disposed = false;
@@ -277,7 +264,29 @@ export default function App() {
   }, []);
   const searchRef = useRef<HTMLInputElement>(null);
   const tab = tabs.find((t) => t.request.id === active);
+  const tabView = { ...defaultRequestView, ...tab?.view };
+  const editor = tabView.requestSection;
+  const responseTab = tabView.responseSection;
+  const responseFormat = tabView.responseFormat;
+  const headerSearch = tabView.headerSearch;
+  const {
+    value: responseBody,
+    invalidJson,
+    language: responseLanguage,
+  } = useMemo(
+    () => responsePresentation(tab?.response, responseTab),
+    [tab?.response, responseTab],
+  );
   const r = tab?.request;
+  // Raw bodies need room for mode controls, editor tools and readable document lines.
+  const minEditorHeight = Math.min(
+    editor === "Body" && r?.body.mode === "raw" ? 380 : consoleOpen ? 240 : 180,
+    maxEditorHeight,
+  );
+  const editorHeight = Math.max(
+    minEditorHeight,
+    Math.min(topHeight ?? (mainHeight - tabHeight) * 0.45, maxEditorHeight),
+  );
   const selectedItem = w?.items.find((i) => i.id === selected);
   const collection = w?.collections.find(
     (c) => c.id === (selectedItem?.collectionId ?? selected),
@@ -325,6 +334,13 @@ export default function App() {
   }, [setWorkspace]);
   const updateTab = (id: string, p: Partial<Tab>) =>
     setTabs((ts) => ts.map((t) => (t.request.id === id ? { ...t, ...p } : t)));
+  const setView = (patch: Partial<RequestView>) =>
+    setTabs((ts) => patchRequestView(ts, active, patch));
+  const setResponseTab = (responseSection: string) =>
+    setView({ responseSection });
+  const setResponseFormat = (responseFormat: string) =>
+    setView({ responseFormat });
+  const setHeaderSearch = (headerSearch: string) => setView({ headerSearch });
   const edit = (p: Partial<RequestSpec>) => {
     if (r)
       updateTab(r.id, {
@@ -436,12 +452,10 @@ export default function App() {
   const activateRequest = (id: string) => {
     setActive(id);
     setSelected(w?.items.find((item) => item.request?.id === id)?.id ?? "");
-    setEditor(editorSelections.current.get(id) ?? "Params");
     setModal("");
   };
   const chooseEditor = (name: string) => {
-    editorSelections.current.set(active, name);
-    setEditor(name);
+    setView({ requestSection: name });
   };
   const openRequest = (request: RequestSpec) => {
     if (!tabs.some((t) => t.request.id === request.id))
@@ -553,6 +567,8 @@ export default function App() {
     if (t?.dirty) await api.draft(id, t.request);
     if (t?.execution) await api.cancel(t.execution);
     setTabs((ts) => ts.filter((t) => t.request.id !== id));
+    // The unmounted editor saves its session during cleanup; remove it after that render.
+    requestAnimationFrame(() => editorSessions.forgetRequest(id));
     if (active === id) {
       activateRequest(tabs.find((t) => t.request.id !== id)?.request.id ?? "");
     }
@@ -747,6 +763,9 @@ export default function App() {
       items: w.items.filter((i) => !remove.has(i.id)),
     });
     setTabs((ts) => ts.filter((t) => !requestIds.has(t.request.id)));
+    requestAnimationFrame(() => {
+      for (const id of requestIds) if (id) editorSessions.forgetRequest(id);
+    });
     for (const id of requestIds) if (id) await api.draft(id, null);
     if (requestIds.has(active))
       setActive(
@@ -937,16 +956,6 @@ export default function App() {
     setEditedEnvironmentId(id);
     setModal("Environment");
   };
-  let responseBody = tab?.response?.body ?? "";
-  let invalidJson = false;
-  if (responseTab === "Pretty" && responseBody.length < 5 * 1024 * 1024) {
-    try {
-      responseBody = JSON.stringify(JSON.parse(responseBody), null, 2);
-    } catch {
-      invalidJson =
-        !!responseBody.trim() && !!tab?.response?.contentType.includes("json");
-    }
-  }
   return (
     <div className="app">
       <header className="app-header">
@@ -1947,15 +1956,17 @@ export default function App() {
                           </p>
                         )}
                         {r.body.mode === "raw" && (
-                          <CodeMirror
+                          <CodeEditor
+                            key={`${r.id}:body`}
+                            stateKey={`${r.id}:body`}
+                            sessions={editorSessions}
+                            label={tr("Request body editor")}
                             theme={resolvedTheme}
                             value={r.body.raw ?? ""}
-                            extensions={[
-                              phrases,
-                              ...(r.body.options?.raw?.language === "json"
-                                ? [json()]
-                                : []),
-                            ]}
+                            language={
+                              (r.body.options?.raw?.language ??
+                                "text") as EditorLanguage
+                            }
                             onChange={(raw) =>
                               edit({ body: { ...r.body, raw } })
                             }
@@ -2377,20 +2388,15 @@ export default function App() {
                           srcDoc={responseBody}
                         />
                       ) : (
-                        <CodeMirror
+                        <CodeEditor
+                          key={`${r.id}:response:${responseTab}`}
+                          stateKey={`${r.id}:response:${responseTab}`}
+                          sessions={editorSessions}
+                          label={tr("Response body editor")}
                           theme={resolvedTheme}
                           value={responseBody}
-                          extensions={[
-                            phrases,
-                            ...(responseTab === "Pretty" ? [json()] : []),
-                          ]}
-                          basicSetup={{
-                            lineNumbers: true,
-                            foldGutter: responseTab === "Pretty",
-                            highlightActiveLine: false,
-                            highlightActiveLineGutter: false,
-                          }}
-                          editable={false}
+                          language={responseLanguage}
+                          readOnly
                         />
                       )}
                     </>

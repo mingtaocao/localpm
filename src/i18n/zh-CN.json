@@ -397,5 +397,18 @@
   "Apply method": "应用方法",
   "Enter a valid HTTP method token.": "请输入有效的 HTTP 方法名称。",
   "Collapse configuration": "收起请求配置",
-  "Expand configuration": "展开请求配置"
+  "Expand configuration": "展开请求配置",
+  "Read only": "只读",
+  "Find": "查找",
+  "Word wrap": "自动换行",
+  "Fold all": "全部折叠",
+  "Unfold all": "全部展开",
+  "Format JSON": "格式化 JSON",
+  "Format JSON (Ctrl/Cmd+Shift+F)": "格式化 JSON（Ctrl/Cmd+Shift+F）",
+  "Editor font size": "代码字号",
+  "Line %{line}, column %{column}": "第 %{line} 行，第 %{column} 列",
+  "JSON format error at line %{line}, column %{column}: %{message}": "JSON 格式错误，第 %{line} 行、第 %{column} 列：%{message}",
+  "JSON format error: %{message}": "JSON 格式错误：%{message}",
+  "Request body editor": "请求正文编辑器",
+  "Response body editor": "响应正文编辑器"
 }

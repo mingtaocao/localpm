@@ -397,5 +397,18 @@
   "Apply method": "Apply method",
   "Enter a valid HTTP method token.": "Enter a valid HTTP method token.",
   "Collapse configuration": "Collapse configuration",
-  "Expand configuration": "Expand configuration"
+  "Expand configuration": "Expand configuration",
+  "Read only": "Read only",
+  "Find": "Find",
+  "Word wrap": "Word wrap",
+  "Fold all": "Fold all",
+  "Unfold all": "Unfold all",
+  "Format JSON": "Format JSON",
+  "Format JSON (Ctrl/Cmd+Shift+F)": "Format JSON (Ctrl/Cmd+Shift+F)",
+  "Editor font size": "Editor font size",
+  "Line %{line}, column %{column}": "Line %{line}, column %{column}",
+  "JSON format error at line %{line}, column %{column}: %{message}": "JSON format error at line %{line}, column %{column}: %{message}",
+  "JSON format error: %{message}": "JSON format error: %{message}",
+  "Request body editor": "Request body editor",
+  "Response body editor": "Response body editor"
 }
