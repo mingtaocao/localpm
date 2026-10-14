@@ -23,7 +23,11 @@ export function editorTheme(dark: boolean) {
           backgroundColor: "var(--surface)",
           fontSize: "var(--editor-font-size, 14px)",
         },
-        ".cm-content": { caretColor: "var(--editor-cursor)" },
+        ".cm-content": {
+          caretColor: "var(--editor-cursor)",
+          // drawSelection paints below content; an opaque surface hides the selection.
+          backgroundColor: "transparent",
+        },
         ".cm-scroller": {
           fontFamily: 'ui-monospace, "SFMono-Regular", Consolas, monospace',
           lineHeight: "1.6",
@@ -32,8 +36,18 @@ export function editorTheme(dark: boolean) {
           borderLeftColor: "var(--editor-cursor)",
           borderLeftWidth: "2px",
         },
-        "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
-          { backgroundColor: "var(--editor-selection)" },
+        "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, & > .cm-scroller > .cm-selectionLayer .cm-selectionBackground":
+          {
+            backgroundColor: "var(--editor-selection)",
+          },
+        ".cm-content ::selection, .cm-content::selection": {
+          backgroundColor: "transparent",
+          color: "var(--text)",
+        },
+        ".cm-selectionMatch": {
+          outline: "1px solid var(--editor-bracket-border)",
+          backgroundColor: "var(--editor-bracket-bg)",
+        },
         ".cm-activeLine, .cm-activeLineGutter": {
           backgroundColor: "var(--editor-active-line)",
         },
