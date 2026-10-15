@@ -1,3 +1,4 @@
+import { version as appVersion } from "../package.json";
 import { usePreferences } from "./stores/preferences";
 import { formatError } from "./i18n/errors";
 import { useTranslation } from "react-i18next";
@@ -1387,9 +1388,7 @@ export default function App() {
                       }
                     />
                     <p className="muted">
-                      {tr(
-                        "Local Postman 0.5.0 · Local SQLite storage · No login · Scripts preserved, never executed.",
-                      )}
+                      {tr("appDescription", { version: appVersion })}
                     </p>
                   </>
                 )}

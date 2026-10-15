@@ -45,6 +45,9 @@ describe("locale and theme preferences", () => {
       "REQUEST_TIMEOUT: 请求超时。",
     );
     expect(editorPhrases().Find).toBe("查找");
+    expect(i18n.t("appDescription", { version: "1.2.3" })).toContain(
+      "Local Postman 1.2.3 · SQLite 本地存储",
+    );
     await i18n.changeLanguage("en-US");
     expect(i18n.t("openRequests", { count: 1 })).toBe("1 open request");
     expect(i18n.t("openRequests", { count: 2 })).toBe("2 open requests");

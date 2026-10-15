@@ -48,6 +48,22 @@ npm run tauri dev
 
 初始开发主机把 Rust 安装在 `/tmp`。如系统 PATH 没有 Cargo，可使用 `scripts/rust.sh npm run tauri dev`；该脚本会优先采用系统已安装的工具链，临时目录不属于项目的运行依赖。
 
+## 版本管理
+
+`package.json` 的 `version` 是唯一版本来源：页面直接读取，Tauri 配置引用 `../package.json`，Rust 与锁文件由脚本同步。无需逐个修改文件。
+
+```sh
+# 指定下一版本；同步所有版本文件，不自动提交或创建 tag
+npm version 0.10.0 --no-git-tag-version
+# 也可以递增：npm version minor --no-git-tag-version
+# 手动编辑 package.json 后同步
+npm run version:sync
+# 只读检查
+npm run version:check
+```
+
+升级后一起提交 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml` 和 `src-tauri/Cargo.lock`。`npm run build` 与 `npm run tauri …` 会自动同步，直接调用 Cargo 前请先执行 `npm run version:sync`。安装包内的版本在构建时确定，已安装的旧版本需要重新打包安装才能更新显示。
+
 ## 验证
 
 ```sh
@@ -111,12 +127,12 @@ npm run tauri build -- --bundles nsis
 
 发布步骤：
 
-1. 在 `dev` 同步 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 及锁文件中的版本，经 PR 合入 `main`。
-2. 打开 GitHub → Actions → **Build and Release** → **Run workflow**，选择 `main`，填写与 main 项目版本一致且未使用的版本号；当前版本填写 `v0.2.0`。已有 `v0.1.0` tag，不能重复使用。
+1. 在 `dev` 执行 `npm version <新版本> --no-git-tag-version`，提交自动同步后的版本文件，经 PR 合入 `main`。
+2. 打开 GitHub → Actions → **Build and Release** → **Run workflow**，选择 `main`，填写与 main 项目版本一致且未使用的版本号，例如项目版本为 `0.10.0` 时填写 `v0.10.0`。tag 不能重复使用。
 3. Windows x64 NSIS 与 macOS Apple Silicon DMG 并行构建；任意平台失败都不会运行发布任务。
 4. 两个平台成功后，上传两个安装包至草稿 Release，再自动公开发布。tag 指向本次构建的 main 提交，无需手动创建 tag。
 
-目标仓库为 `git@github.com:mingtaocao/localpm.git`；安装包在该仓库 Releases 页面下载。workflow 使用内置 `GITHUB_TOKEN`，无需额外个人 Token。Windows 为 unsigned，macOS 为 ad-hoc 签名、未公证。版本不匹配或 tag 已存在会提前失败；上传或公开发布失败时可能留下草稿，应先检查并处理该草稿再重试。在线发布结果应以对应工作流运行记录为准。
+目标仓库为 `git@github.com:mingtaocao/localpm.git`；安装包在该仓库 Releases 页面下载。workflow 使用内置 `GITHUB_TOKEN`，无需额外个人 Token。Windows 为 unsigned，macOS 为 ad-hoc 签名、未公证。tag 已存在会提前失败（项目版本匹配校验暂时关闭，发布时请填写 `package.json` 对应版本）；上传或公开发布失败时可能留下草稿，应先检查并处理该草稿再重试。在线发布结果应以对应工作流运行记录为准。
 
 ## 数据与安全边界
 

@@ -1,5 +1,10 @@
+import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import type { Workspace, RequestSpec, ResponseResult } from "../src/types";
+
+const { version: appVersion } = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+);
 
 const response: ResponseResult = {
   status: 500,
@@ -1137,5 +1142,34 @@ for (const theme of ["light", "dark"]) {
     await expect(
       console.getByRole("button", { name: "Clear", exact: true }),
     ).toBeDisabled();
+  });
+}
+
+for (const language of ["en-US", "zh-CN"]) {
+  test(`${language}: Settings shows the canonical application version`, async ({
+    page,
+  }) => {
+    await openWorkspace(page, {
+      openSavedRequest: false,
+      configure: (workspace) => {
+        workspace.settings.language = language;
+      },
+    });
+    await page
+      .getByRole("button", {
+        name: language === "zh-CN" ? "⚙ 设置" : "⚙ Settings",
+        exact: true,
+      })
+      .click();
+    const description = page.getByText(`Local Postman ${appVersion} ·`, {
+      exact: false,
+    });
+    await expect(description).toBeVisible();
+    await expect(description).toContainText(
+      language === "zh-CN" ? "SQLite 本地存储" : "Local SQLite storage",
+    );
+    await expect(
+      page.getByText("Local Postman 0.5.0 ·", { exact: false }),
+    ).toHaveCount(0);
   });
 }
