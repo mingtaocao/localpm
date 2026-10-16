@@ -352,9 +352,6 @@ aside nav .active {
 .collection {
   font-weight: 600;
 }
-.collection span {
-  color: var(--muted);
-}
 .selected {
   background: var(--selected) !important;
   box-shadow: inset 3px 0 var(--accent);
@@ -365,9 +362,6 @@ aside nav .active {
     monospace;
   color: var(--muted);
   min-width: 29px;
-}
-.folder {
-  color: var(--muted);
 }
 .sidebar-bottom {
   display: flex;
@@ -1112,12 +1106,36 @@ main {
 .cm-focused {
   outline: none !important;
 }
+.tree-row:hover {
+  background: var(--hover);
+}
+.tree-row .collapse,
+.tree-disclosure-spacer {
+  width: 24px;
+  flex: 0 0 24px;
+}
 .tree-row .collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
   border: 0;
+  border-radius: 4px;
   background: transparent;
-  padding: 0 3px;
-  font-size: 12px;
+  padding: 0;
   color: var(--muted);
+}
+.tree-row .collapse:hover {
+  color: var(--text);
+  background: var(--surface-raised);
+}
+.tree-row .collapse .icon {
+  width: 14px;
+  height: 14px;
+  transition: transform 120ms ease;
+}
+.tree-row .collapse[aria-expanded="true"] .icon {
+  transform: rotate(90deg);
 }
 .tree-row > .tree-item,
 .tree-row > .collection {
@@ -1125,6 +1143,10 @@ main {
   flex: 1;
   padding: 5px;
   min-width: 0;
+}
+.tree-row > .tree-item:hover,
+.tree-row > .collection:hover {
+  background: transparent;
 }
 .tree-row > .collection span:last-child {
   overflow: hidden;
@@ -1811,10 +1833,6 @@ aside nav.resource-navigation .active {
 .collection {
   font-size: 14px;
 }
-.tree-row .collapse {
-  min-height: 28px;
-  min-width: 24px;
-}
 .method {
   font-size: 12px;
   font-weight: 650;
@@ -2284,6 +2302,10 @@ button.primary {
   color: var(--error-text);
 }
 .resource-add-request {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
   flex-shrink: 0;
   border: 0;
   background: transparent;
@@ -2291,6 +2313,15 @@ button.primary {
   padding: 4px;
   color: var(--muted);
   margin-right: 6px;
+}
+.tree-row:hover .resource-add-request,
+.tree-row:focus-within .resource-add-request {
+  opacity: 1;
+}
+@media (hover: none), (pointer: coarse) {
+  .resource-add-request {
+    opacity: 1;
+  }
 }
 .resource-add-request:hover {
   color: var(--accent);

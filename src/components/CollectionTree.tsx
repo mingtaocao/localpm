@@ -2,6 +2,9 @@ import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { readLayout, saveLayout, layoutNumber } from "../stores/layout";
 import type { Workspace, Item } from "../types";
+import { Icon } from "./Icon";
+
+const EMPTY_BRANCHES = new Set<string>();
 export function CollectionTree({
   workspace,
   search,
@@ -33,6 +36,35 @@ export function CollectionTree({
       return new Set();
     }
   });
+  const query = search.trim().toLowerCase();
+  // Search reveals matches without changing the saved browsing layout.
+  const [searchLayout, setSearchLayout] = useState({
+    query: "",
+    collapsed: new Set<string>(),
+  });
+  const hiddenBranches = query
+    ? searchLayout.query === query
+      ? searchLayout.collapsed
+      : EMPTY_BRANCHES
+    : collapsed;
+  const updateSavedBranch = (id: string, hide: boolean) => {
+    setCollapsed((previous) => {
+      const next = new Set(previous);
+      if (hide) next.add(id);
+      else next.delete(id);
+      saveLayout("localpm-tree-collapsed", JSON.stringify([...next]));
+      return next;
+    });
+  };
+  const updateBranch = (id: string, hide: boolean) => {
+    if (!query) return updateSavedBranch(id, hide);
+    setSearchLayout((previous) => {
+      const next = new Set(previous.query === query ? previous.collapsed : []);
+      if (hide) next.add(id);
+      else next.delete(id);
+      return { query, collapsed: next };
+    });
+  };
   const rows = useMemo(() => {
     const byParent = new Map<string, Item[]>();
     for (const i of workspace.items) {
@@ -42,7 +74,6 @@ export function CollectionTree({
       byParent.set(k, a);
     }
     for (const a of byParent.values()) a.sort((a, b) => a.order - b.order);
-    const query = search.toLowerCase();
     const keep = new Set<string>();
     if (query) {
       const byId = new Map(workspace.items.map((i) => [i.id, i]));
@@ -69,7 +100,7 @@ export function CollectionTree({
     for (const c of workspace.collections) {
       if (query && !keep.has(c.id)) continue;
       result.push({ id: c.id, name: c.name, depth: 0 });
-      if (collapsed.has(c.id) && !query) continue;
+      if (hiddenBranches.has(c.id)) continue;
       const stack = [...(byParent.get(c.id) ?? [])]
         .reverse()
         .map((item) => ({ item, depth: 1 }));
@@ -77,13 +108,13 @@ export function CollectionTree({
         const { item, depth } = stack.pop()!;
         if (query && !keep.has(item.id)) continue;
         result.push({ id: item.id, name: item.name, depth, item });
-        if (item.kind === "folder" && (!collapsed.has(item.id) || query))
+        if (item.kind === "folder" && !hiddenBranches.has(item.id))
           for (const child of [...(byParent.get(item.id) ?? [])].reverse())
             stack.push({ item: child, depth: depth + 1 });
       }
     }
     return result;
-  }, [workspace.items, workspace.collections, search, collapsed]);
+  }, [workspace.items, workspace.collections, query, hiddenBranches]);
   const start = Math.max(
     0,
     Math.min(Math.floor(scroll / 36) - 5, rows.length - 1),
@@ -99,87 +130,84 @@ export function CollectionTree({
       }}
     >
       <div style={{ height: rows.length * 36, position: "relative" }}>
-        {visible.map((row, index) => (
-          <div
-            key={row.id}
-            className={`tree-row ${selected === row.id ? "selected" : ""}`}
-            style={{
-              position: "absolute",
-              top: (start + index) * 36,
-              left: 0,
-              right: 0,
-              height: 36,
-              display: "flex",
-              alignItems: "center",
-              paddingLeft: 8 + Math.min(row.depth, 20) * 12,
-            }}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              onMove(e.dataTransfer.getData("text/plain"), row.id);
-            }}
-          >
-            {(!row.item || row.item.kind === "folder") && (
-              <button
-                className="collapse"
-                aria-label={tr(
-                  collapsed.has(row.id) ? "Expand %{name}" : "Collapse %{name}",
-                  { name: row.name },
-                )}
-                aria-expanded={!collapsed.has(row.id)}
-                onClick={() =>
-                  setCollapsed((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(row.id)) next.delete(row.id);
-                    else next.add(row.id);
-                    saveLayout(
-                      "localpm-tree-collapsed",
-                      JSON.stringify([...next]),
-                    );
-                    return next;
-                  })
-                }
-              >
-                {collapsed.has(row.id) ? "▸" : "▾"}
-              </button>
-            )}
-            <button
-              title={row.name}
-              draggable={!!row.item}
-              onDragStart={(e) => e.dataTransfer.setData("text/plain", row.id)}
-              className={row.item ? "tree-item" : "collection"}
-              onClick={() => onSelect(row.id, row.item)}
+        {visible.map((row, index) => {
+          const branch = !row.item || row.item.kind === "folder";
+          const expanded = !hiddenBranches.has(row.id);
+          return (
+            <div
+              key={row.id}
+              className={`tree-row ${selected === row.id ? "selected" : ""}`}
+              style={{
+                position: "absolute",
+                top: (start + index) * 36,
+                left: 0,
+                right: 0,
+                height: 36,
+                display: "flex",
+                alignItems: "center",
+                paddingLeft: 8 + Math.min(row.depth, 20) * 12,
+              }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                onMove(e.dataTransfer.getData("text/plain"), row.id);
+              }}
             >
-              <span
-                className={row.item?.request ? "method" : "folder"}
-                data-method={row.item?.request?.method}
-              >
-                {row.item?.request?.method ?? (row.item ? "▾" : "▣")}
-              </span>
-              <span>{row.name}</span>
-            </button>
-            {(!row.item || row.item.kind === "folder") && (
+              {branch ? (
+                <button
+                  className="collapse"
+                  aria-label={tr(
+                    expanded ? "Collapse %{name}" : "Expand %{name}",
+                    { name: row.name },
+                  )}
+                  aria-expanded={expanded}
+                  onClick={() => updateBranch(row.id, expanded)}
+                >
+                  <Icon name="chevron-right" />
+                </button>
+              ) : (
+                <span className="tree-disclosure-spacer" aria-hidden="true" />
+              )}
               <button
-                className="resource-add-request"
-                title={tr("Add request to %{name}", { name: row.name })}
-                aria-label={tr("Add request to %{name}", { name: row.name })}
-                onClick={() => {
-                  setCollapsed((prev) => {
-                    const next = new Set(prev);
-                    next.delete(row.id);
-                    return next;
-                  });
-                  onAddRequest(
-                    row.item?.collectionId ?? row.id,
-                    row.item?.id ?? null,
-                  );
-                }}
+                title={row.name}
+                aria-current={selected === row.id ? "true" : undefined}
+                draggable={!!row.item}
+                onDragStart={(e) =>
+                  e.dataTransfer.setData("text/plain", row.id)
+                }
+                className={row.item ? "tree-item" : "collection"}
+                onClick={() => onSelect(row.id, row.item)}
               >
-                ＋
+                {row.item?.request && (
+                  <span
+                    className="method"
+                    data-method={row.item?.request?.method}
+                  >
+                    {row.item.request.method}
+                  </span>
+                )}
+                <span>{row.name}</span>
               </button>
-            )}
-          </div>
-        ))}
+              {branch && (
+                <button
+                  className="resource-add-request"
+                  title={tr("Add request to %{name}", { name: row.name })}
+                  aria-label={tr("Add request to %{name}", { name: row.name })}
+                  onClick={() => {
+                    updateSavedBranch(row.id, false);
+                    if (query) updateBranch(row.id, false);
+                    onAddRequest(
+                      row.item?.collectionId ?? row.id,
+                      row.item?.id ?? null,
+                    );
+                  }}
+                >
+                  <Icon name="plus" />
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
       {!rows.length && (
         <p className="empty-small">

@@ -1020,7 +1020,7 @@ test("adding within a folder fixes the destination at creation even after resour
     "API / Child folder",
   );
   await page.getByLabel("Request name").fill("Scoped request");
-  await page.getByRole("button", { name: "▣ Other API", exact: true }).click();
+  await page.getByRole("button", { name: "Other API", exact: true }).click();
   await page.getByRole("button", { name: "Close ×", exact: true }).click();
   await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
   await expect
@@ -1173,3 +1173,141 @@ for (const language of ["en-US", "zh-CN"]) {
     ).toHaveCount(0);
   });
 }
+
+function nestUsers(workspace: Workspace) {
+  workspace.items[0].parentId = "folder";
+  workspace.items.push({
+    id: "folder",
+    name: "Users folder",
+    collectionId: "collection",
+    parentId: null,
+    kind: "folder",
+    order: 0,
+    auth: { type: "inherit" },
+    request: null,
+    metadata: null,
+  });
+}
+
+for (const theme of ["light", "dark"]) {
+  test(`${theme}: collection branches have a single disclosure and quiet, keyboard-accessible actions`, async ({
+    page,
+  }) => {
+    await openWorkspace(page, { theme, configure: nestUsers });
+    await showSidebar(page);
+    for (const name of ["API", "Users folder"]) {
+      const label = page.getByRole("button", { name, exact: true });
+      const row = page.locator(".tree-row").filter({ has: label });
+      await expect(label.locator("svg, .folder")).toHaveCount(0);
+      await expect(row.locator(".collapse")).toHaveCount(1);
+      await expect(row.locator(".collapse svg")).toHaveCount(1);
+      expect(await row.innerText()).not.toMatch(/[▣▾▸]/);
+      const toggle = row.locator(".collapse");
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await toggle.press("Enter");
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await expect(
+        page.getByRole("button", { name: "GET Users", exact: true }),
+      ).toBeHidden();
+      await toggle.press("Space");
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await expect(
+        page.getByRole("button", { name: "GET Users", exact: true }),
+      ).toBeVisible();
+    }
+    await expect(page.locator(".panel")).toHaveCount(0);
+    const request = page.getByRole("button", {
+      name: "GET Users",
+      exact: true,
+    });
+    await expect(request.locator(".method")).toHaveText("GET");
+    await expect(request).toHaveAttribute("aria-current", "true");
+    const add = page.getByRole("button", {
+      name: "Add request to API",
+      exact: true,
+    });
+    await page.getByLabel("Request URL", { exact: true }).focus();
+    await page.mouse.move(700, 400);
+    await expect(add).toHaveCSS("opacity", "0");
+    await add.focus();
+    await expect(add).toHaveCSS("opacity", "1");
+    await page.getByLabel("Request URL", { exact: true }).focus();
+    await page.locator(".collection").hover();
+    await expect(add).toHaveCSS("opacity", "1");
+    await page.screenshot({ path: `artifacts/tree-disclosures-${theme}.png` });
+    await page.locator(".collection").click();
+    await expect(
+      page.getByRole("heading", { name: "Collection", exact: true }),
+    ).toBeVisible();
+  });
+}
+
+test("search disclosure state matches visible children and preserves the saved browsing layout", async ({
+  page,
+}) => {
+  await openWorkspace(page, { configure: nestUsers });
+  await showSidebar(page);
+  await page.getByRole("button", { name: "Collapse API", exact: true }).click();
+  const search = page.getByPlaceholder("Search name or URL  ⌘K");
+  await search.fill("users");
+  await expect(
+    page.getByRole("button", { name: "Collapse API", exact: true }),
+  ).toHaveAttribute("aria-expanded", "true");
+  const folder = page.getByRole("button", {
+    name: "Collapse Users folder",
+    exact: true,
+  });
+  await expect(folder).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    page.getByRole("button", { name: "GET Users", exact: true }),
+  ).toBeVisible();
+  await folder.click();
+  await expect(
+    page.getByRole("button", { name: "Expand Users folder", exact: true }),
+  ).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByRole("button", { name: "GET Users", exact: true }),
+  ).toBeHidden();
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("localpm-tree-collapsed")!),
+    ),
+  ).toEqual(["collection"]);
+  await search.fill("");
+  await expect(
+    page.getByRole("button", { name: "Expand API", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Expand API", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "GET Users", exact: true }),
+  ).toBeVisible();
+});
+
+test("adding a request expands the folder and persists that expansion after reload", async ({
+  page,
+}) => {
+  await openWorkspace(page, { configure: nestUsers });
+  await showSidebar(page);
+  await page
+    .getByRole("button", { name: "Collapse Users folder", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Add request to Users folder", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Collapse Users folder", exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("localpm-tree-collapsed")!),
+    ),
+  ).not.toContain("folder");
+  await page.reload();
+  await showSidebar(page);
+  await expect(
+    page.getByRole("button", { name: "Collapse Users folder", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "GET Users", exact: true }),
+  ).toBeVisible();
+});
