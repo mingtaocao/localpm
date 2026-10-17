@@ -10,6 +10,7 @@ export function CollectionTree({
   search,
   selected,
   onSelect,
+  onEdit,
   onMove,
   onAddRequest,
 }: {
@@ -17,6 +18,7 @@ export function CollectionTree({
   search: string;
   selected: string;
   onSelect: (id: string, item?: Item) => void;
+  onEdit: (id: string, item?: Item) => void;
   onMove: (source: string, target: string) => void;
   onAddRequest: (collectionId: string, parentId: string | null) => void;
 }) {
@@ -133,10 +135,23 @@ export function CollectionTree({
         {visible.map((row, index) => {
           const branch = !row.item || row.item.kind === "folder";
           const expanded = !hiddenBranches.has(row.id);
+          const activate = () => {
+            if (branch) updateBranch(row.id, expanded);
+            onSelect(row.id, row.item);
+          };
+          const editLabel = tr(
+            row.item ? "Edit folder %{name}" : "Edit collection %{name}",
+            { name: row.name },
+          );
           return (
             <div
               key={row.id}
               className={`tree-row ${selected === row.id ? "selected" : ""}`}
+              data-branch={branch || undefined}
+              onClick={(event) => {
+                // Buttons handle their own action; padding belongs to the row.
+                if (branch && event.target === event.currentTarget) activate();
+              }}
               style={{
                 position: "absolute",
                 top: (start + index) * 36,
@@ -171,12 +186,13 @@ export function CollectionTree({
               <button
                 title={row.name}
                 aria-current={selected === row.id ? "true" : undefined}
+                aria-expanded={branch ? expanded : undefined}
                 draggable={!!row.item}
                 onDragStart={(e) =>
                   e.dataTransfer.setData("text/plain", row.id)
                 }
                 className={row.item ? "tree-item" : "collection"}
-                onClick={() => onSelect(row.id, row.item)}
+                onClick={activate}
               >
                 {row.item?.request && (
                   <span
@@ -188,6 +204,16 @@ export function CollectionTree({
                 )}
                 <span>{row.name}</span>
               </button>
+              {branch && (
+                <button
+                  className="resource-edit"
+                  title={editLabel}
+                  aria-label={editLabel}
+                  onClick={() => onEdit(row.id, row.item)}
+                >
+                  <Icon name="settings" />
+                </button>
+              )}
               {branch && (
                 <button
                   className="resource-add-request"

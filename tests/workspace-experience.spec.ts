@@ -1020,7 +1020,9 @@ test("adding within a folder fixes the destination at creation even after resour
     "API / Child folder",
   );
   await page.getByLabel("Request name").fill("Scoped request");
-  await page.getByRole("button", { name: "Other API", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Edit collection Other API", exact: true })
+    .click();
   await page.getByRole("button", { name: "Close ×", exact: true }).click();
   await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
   await expect
@@ -1235,7 +1237,9 @@ for (const theme of ["light", "dark"]) {
     await page.locator(".collection").hover();
     await expect(add).toHaveCSS("opacity", "1");
     await page.screenshot({ path: `artifacts/tree-disclosures-${theme}.png` });
-    await page.locator(".collection").click();
+    await page
+      .getByRole("button", { name: "Edit collection API", exact: true })
+      .click();
     await expect(
       page.getByRole("heading", { name: "Collection", exact: true }),
     ).toBeVisible();
@@ -1310,4 +1314,85 @@ test("adding a request expands the folder and persists that expansion after relo
   await expect(
     page.getByRole("button", { name: "GET Users", exact: true }),
   ).toBeVisible();
+});
+
+test("branch text, trailing label space and row padding toggle without opening settings", async ({
+  page,
+}) => {
+  await openWorkspace(page, { configure: nestUsers });
+  await showSidebar(page);
+  const users = page.getByRole("button", { name: "GET Users", exact: true });
+  for (const name of ["API", "Users folder"]) {
+    const label = page.getByRole("button", { name, exact: true });
+    await label.locator("span").click();
+    await expect(label).toHaveAttribute("aria-expanded", "false");
+    await expect(users).toBeHidden();
+    await expect(page.locator(".panel")).toHaveCount(0);
+    const box = (await label.boundingBox())!;
+    await label.click({ position: { x: box.width - 3, y: box.height / 2 } });
+    await expect(label).toHaveAttribute("aria-expanded", "true");
+    await expect(users).toBeVisible();
+    const row = page.locator(".tree-row").filter({ has: label });
+    await row.click({ position: { x: 2, y: 18 } });
+    await expect(label).toHaveAttribute("aria-expanded", "false");
+    await label.press("Space");
+    await expect(label).toHaveAttribute("aria-expanded", "true");
+  }
+  const folder = page.getByRole("button", {
+    name: "Users folder",
+    exact: true,
+  });
+  await folder.press("Enter");
+  await expect(folder).toHaveAttribute("aria-expanded", "false");
+  await page
+    .getByRole("button", { name: "Edit folder Users folder", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Folder", exact: true }),
+  ).toBeVisible();
+  await expect(folder).toHaveAttribute("aria-expanded", "false");
+  await folder.click();
+  await expect(folder).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator(".panel")).toHaveCount(0);
+  await folder.click();
+  await page.reload();
+  await showSidebar(page);
+  await expect(folder).toHaveAttribute("aria-expanded", "false");
+  await folder.click();
+  await expect(users).toBeVisible();
+  await users.click();
+  await expect(page.getByLabel("Request URL", { exact: true })).toHaveValue(
+    "https://example.test/users?page=1",
+  );
+  await expect(page.locator(".panel")).toHaveCount(0);
+});
+
+test("text toggling in search preserves the normal collection layout", async ({
+  page,
+}) => {
+  await openWorkspace(page, { configure: nestUsers });
+  await showSidebar(page);
+  const collection = page.getByRole("button", { name: "API", exact: true });
+  await collection.click();
+  const search = page.getByPlaceholder("Search name or URL  ⌘K");
+  await search.fill("Users");
+  await expect(collection).toHaveAttribute("aria-expanded", "true");
+  const folder = page.getByRole("button", {
+    name: "Users folder",
+    exact: true,
+  });
+  await folder.click();
+  await expect(
+    page.getByRole("button", { name: "GET Users", exact: true }),
+  ).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "Expand Users folder", exact: true }),
+  ).toHaveAttribute("aria-expanded", "false");
+  await folder.click();
+  await expect(
+    page.getByRole("button", { name: "GET Users", exact: true }),
+  ).toBeVisible();
+  await search.clear();
+  await expect(collection).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(".panel")).toHaveCount(0);
 });

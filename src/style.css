@@ -1106,6 +1106,9 @@ main {
 .cm-focused {
   outline: none !important;
 }
+.tree-row[data-branch] {
+  cursor: pointer;
+}
 .tree-row:hover {
   background: var(--hover);
 }
@@ -2301,7 +2304,8 @@ button.primary {
 .custom-method-editor small {
   color: var(--error-text);
 }
-.resource-add-request {
+.resource-add-request,
+.resource-edit {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2315,15 +2319,22 @@ button.primary {
   margin-right: 6px;
 }
 .tree-row:hover .resource-add-request,
-.tree-row:focus-within .resource-add-request {
+.tree-row:focus-within .resource-add-request,
+.tree-row:hover .resource-edit,
+.tree-row:focus-within .resource-edit {
   opacity: 1;
 }
 @media (hover: none), (pointer: coarse) {
-  .resource-add-request {
+  .resource-add-request,
+  .resource-edit {
     opacity: 1;
   }
 }
-.resource-add-request:hover {
+.resource-edit {
+  margin-right: 0;
+}
+.resource-add-request:hover,
+.resource-edit:hover {
   color: var(--accent);
 }
 .workspace-status {

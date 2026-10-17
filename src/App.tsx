@@ -1078,8 +1078,12 @@ export default function App() {
               }
               onSelect={(id, item) => {
                 setSelected(id);
+                setModal("");
                 if (item?.request) openRequest(item.request);
-                else setModal(item ? "Folder" : "Collection");
+              }}
+              onEdit={(id, item) => {
+                setSelected(id);
+                setModal(item ? "Folder" : "Collection");
               }}
             />
             <div className="sidebar-bottom">

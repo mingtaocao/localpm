@@ -410,5 +410,7 @@
   "JSON format error at line %{line}, column %{column}: %{message}": "JSON format error at line %{line}, column %{column}: %{message}",
   "JSON format error: %{message}": "JSON format error: %{message}",
   "Request body editor": "Request body editor",
-  "Response body editor": "Response body editor"
+  "Response body editor": "Response body editor",
+  "Edit collection %{name}": "Edit collection %{name}",
+  "Edit folder %{name}": "Edit folder %{name}"
 }
