@@ -1221,13 +1221,26 @@ export default function App() {
                     aria-label={tr("Request tab: %{name}", {
                       name: t.request.name,
                     })}
+                    aria-describedby={
+                      t.dirty ? `request-unsaved-${t.request.id}` : undefined
+                    }
                     onClick={() => activateRequest(t.request.id)}
                   >
                     <span className="method" data-method={t.request.method}>
                       {t.request.method}
                     </span>{" "}
                     <span className="tab-name">{t.request.name}</span>
-                    {t.dirty ? " •" : ""}
+                    {t.dirty && (
+                      <span
+                        className="tab-dirty-indicator"
+                        id={`request-unsaved-${t.request.id}`}
+                        title={tr("Unsaved changes")}
+                      >
+                        <span className="rare-sr-only">
+                          {tr("Unsaved changes")}
+                        </span>
+                      </span>
+                    )}
                   </button>
                   <button
                     title={tr("Close tab (draft retained)")}
@@ -1767,7 +1780,7 @@ export default function App() {
                     </nav>
                     <div className="request-tools">
                       <span
-                        className={`save-status ${tab?.saveState === "failed" ? "save-failed" : ""}`}
+                        className={`save-status ${tab?.saveState === "failed" ? "save-failed" : tab?.dirty ? "save-unsaved" : ""}`}
                         role="status"
                         title={requestCollection?.name}
                       >

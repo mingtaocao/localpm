@@ -8,8 +8,10 @@ const highlighting = HighlightStyle.define([
     tag: [tags.string, tags.special(tags.string)],
     color: "var(--editor-string)",
   },
-  { tag: [tags.number, tags.bool, tags.null], color: "var(--editor-number)" },
+  { tag: tags.number, color: "var(--editor-number)" },
+  { tag: [tags.bool, tags.null], color: "var(--editor-literal)" },
   { tag: tags.propertyName, color: "var(--editor-property)" },
+  { tag: [tags.punctuation, tags.bracket], color: "var(--editor-punctuation)" },
   { tag: tags.comment, color: "var(--muted)", fontStyle: "italic" },
   { tag: tags.invalid, color: "var(--error-text)" },
 ]);
