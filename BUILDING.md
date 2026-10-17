@@ -35,7 +35,7 @@ npm run tauri build -- --bundles dmg
   codesign --verify --deep --strict 'src-tauri/target/release/bundle/macos/Local Postman.app'
 
   pack_stage=$(mktemp -d /tmp/localpm-package.XXXXXX)
-  pack_version=$(node -p 'JSON.parse(require("fs").readFileSync("src-tauri/tauri.conf.json", "utf8")).version')
+  pack_version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json", "utf8")).version')
   pack_arch=$(uname -m)
   pack_output="artifacts/LocalPostman-${pack_version}-macos-${pack_arch}-ad-hoc-$(date +%Y%m%d-%H%M%S).dmg"
 

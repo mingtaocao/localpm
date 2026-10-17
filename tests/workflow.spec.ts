@@ -192,7 +192,7 @@ test("full UI workflow using real Rust HTTP and SQLite, including backend restar
       page.locator(".collection").filter({ hasText: "Acceptance API" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "▾ Echo requests" }),
+      page.getByRole("button", { name: "Echo requests", exact: true }),
     ).toBeVisible();
     await page
       .getByRole("button", { name: "POST Saved echo", exact: true })

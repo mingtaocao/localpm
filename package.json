@@ -8,10 +8,16 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vitest run",
+    "test": "vitest run && npm run test:version",
     "tauri": "tauri",
     "test:e2e": "playwright test",
-    "format": "prettier --write src tests *.ts"
+    "format": "prettier --write src tests *.ts",
+    "version": "node scripts/sync-version.mjs",
+    "version:sync": "node scripts/sync-version.mjs",
+    "version:check": "node scripts/sync-version.mjs --check",
+    "prebuild": "npm run version:sync",
+    "pretauri": "npm run version:sync",
+    "test:version": "node --test scripts/tests/version-sync.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

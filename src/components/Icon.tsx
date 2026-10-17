@@ -10,6 +10,7 @@ type IconName =
   | "sun"
   | "moon"
   | "chevron-up"
+  | "chevron-right"
   | "chevron-down";
 export function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
@@ -53,6 +54,7 @@ export function Icon({ name }: { name: IconName }) {
       </>
     ),
     "chevron-up": <path d="m6 15 6-6 6 6" />,
+    "chevron-right": <path d="m9 6 6 6-6 6" />,
     "chevron-down": <path d="m6 9 6 6 6-6" />,
     moon: <path d="M20 15.5A8.5 8.5 0 0 1 8.5 4a8.5 8.5 0 1 0 11.5 11.5Z" />,
     close: <path d="m6 6 12 12M6 18 18 6" />,
