@@ -66,6 +66,9 @@ export default function App() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
+  const activeSends = useRef(
+    new Map<string, { id: string; cancelled: boolean; started: boolean }>(),
+  );
   const [active, setActive] = useState("");
   const activeRef = useRef(active);
   activeRef.current = active;
@@ -563,10 +566,17 @@ export default function App() {
     setSection("Collections");
     setSearch("");
   };
+  const cancelRequest = async (requestId: string) => {
+    const execution = activeSends.current.get(requestId);
+    if (!execution) return;
+    execution.cancelled = true;
+    if (execution.started) await api.cancel(execution.id);
+  };
   const closeTab = async (id: string) => {
     const t = tabs.find((t) => t.request.id === id);
     if (t?.dirty) await api.draft(id, t.request);
-    if (t?.execution) await api.cancel(t.execution);
+    await cancelRequest(id);
+    activeSends.current.delete(id);
     setTabs((ts) => ts.filter((t) => t.request.id !== id));
     // The unmounted editor saves its session during cleanup; remove it after that render.
     requestAnimationFrame(() => editorSessions.forgetRequest(id));
@@ -575,8 +585,19 @@ export default function App() {
     }
   };
   const send = async () => {
-    if (!r || !w || tab?.execution) return;
+    if (!r || !w || activeSends.current.has(r.id)) return;
     const id = crypto.randomUUID();
+    const execution = { id, cancelled: false, started: false };
+    activeSends.current.set(r.id, execution);
+    // A closed and reopened request has the same request ID but a new execution.
+    const updateExecution = (patch: Partial<Tab>) =>
+      setTabs((tabs) =>
+        tabs.map((tab) =>
+          tab.request.id === r.id && tab.execution === id
+            ? { ...tab, ...patch }
+            : tab,
+        ),
+      );
     const started = performance.now();
     const request = structuredClone(r);
     const sentEnvironment = environment?.name ?? tr("No environment");
@@ -594,15 +615,18 @@ export default function App() {
     updateTab(r.id, {
       execution: id,
       error: undefined,
-      response: undefined,
-      responseContext: undefined,
+      responseIsPrevious: !!tab?.response,
     });
     try {
       if (w.items.some((item) => item.request?.id === request.id)) await save();
       else await persist(w);
+      if (execution.cancelled)
+        throw { code: "REQUEST_CANCELLED", message: "Request cancelled" };
+      execution.started = true;
       const result = await api.send(request, id);
-      updateTab(r.id, {
+      updateExecution({
         response: result,
+        responseIsPrevious: false,
         responseContext: {
           time: new Date().toLocaleTimeString(),
           environment: sentEnvironment,
@@ -631,7 +655,7 @@ export default function App() {
         ),
       );
     } catch (e: unknown) {
-      updateTab(r.id, { error: e });
+      updateExecution({ error: e });
       setConsoleEntries((entries) =>
         entries.map((entry) =>
           entry.id === id
@@ -649,7 +673,9 @@ export default function App() {
         ),
       );
     } finally {
-      updateTab(r.id, { execution: undefined });
+      if (activeSends.current.get(r.id) === execution)
+        activeSends.current.delete(r.id);
+      updateExecution({ execution: undefined });
       api.history().then(setHistory).catch(fail);
     }
   };
@@ -1670,7 +1696,7 @@ export default function App() {
                       className="primary"
                       onClick={() =>
                         tab?.execution
-                          ? void api.cancel(tab.execution).catch(fail)
+                          ? void cancelRequest(r.id).catch(fail)
                           : void send()
                       }
                     >
@@ -2323,16 +2349,36 @@ export default function App() {
                         "Response received at %{time} · %{environment}",
                         tab.responseContext,
                       )}
+                      {tab.responseIsPrevious && (
+                        <>
+                          {" "}
+                          · <strong>{tr("Previous response")}</strong>
+                        </>
+                      )}
                     </div>
                   )}
-                  {!!tab?.error && (
-                    <div role="alert" className="error">
-                      {formatError(tab.error)}
-                      <button onClick={() => setConsoleOpen(true)}>
-                        {tr("View diagnostics")}
-                      </button>
+                  {tab?.execution && tab.response && (
+                    <div className="response-context" role="status">
+                      {tr(
+                        "Sending request… Previous response remains available.",
+                      )}
                     </div>
                   )}
+                  {!!tab?.error &&
+                    (typeof tab.error === "object" &&
+                    "code" in tab.error &&
+                    tab.error.code === "REQUEST_CANCELLED" ? (
+                      <div role="status" className="response-context">
+                        {tr("error.REQUEST_CANCELLED")}
+                      </div>
+                    ) : (
+                      <div role="alert" className="error">
+                        {formatError(tab.error)}
+                        <button onClick={() => setConsoleOpen(true)}>
+                          {tr("View diagnostics")}
+                        </button>
+                      </div>
+                    ))}
                   {invalidJson && (
                     <p className="response-context" role="status">
                       {tr("Invalid JSON; showing the original response.")}

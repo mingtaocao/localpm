@@ -412,5 +412,7 @@
   "Request body editor": "Request body editor",
   "Response body editor": "Response body editor",
   "Edit collection %{name}": "Edit collection %{name}",
-  "Edit folder %{name}": "Edit folder %{name}"
+  "Edit folder %{name}": "Edit folder %{name}",
+  "Previous response": "Previous response",
+  "Sending request… Previous response remains available.": "Sending request… Previous response remains available."
 }

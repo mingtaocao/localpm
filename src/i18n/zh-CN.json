@@ -412,5 +412,7 @@
   "Request body editor": "请求正文编辑器",
   "Response body editor": "响应正文编辑器",
   "Edit collection %{name}": "编辑集合 %{name}",
-  "Edit folder %{name}": "编辑文件夹 %{name}"
+  "Edit folder %{name}": "编辑文件夹 %{name}",
+  "Previous response": "上次响应",
+  "Sending request… Previous response remains available.": "正在发送请求… 可继续查看上次响应。"
 }

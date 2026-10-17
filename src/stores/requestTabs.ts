@@ -19,6 +19,7 @@ export type RequestTab = {
   dirty: boolean;
   response?: ResponseResult;
   responseContext?: { time: string; environment: string; url: string };
+  responseIsPrevious?: boolean;
   execution?: string;
   error?: unknown;
   saveState?: "saving" | "draft" | "saved" | "failed";
