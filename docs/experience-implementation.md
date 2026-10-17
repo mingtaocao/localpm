@@ -26,7 +26,13 @@ Still requires native acceptance: real Chinese IME composition, OS 125%/150% sca
 
 ## Phase B — request workbench
 
-Pending: explicit collection Save vs automatic draft saving; frozen execution environment/request context; preservation of previous responses; stable key-value row identity/paste; variable inspector; Console selection/maximization; shared viewer for MCP execution details. Existing autosave and execution behavior remain in place in Phase A.
+Implemented incrementally:
+
+- Resending retains the previous response, its metrics and original environment/time, with an explicit previous-response label until a new result arrives. Network failure and cancellation retain it too; cancellation has a neutral status in the response pane.
+- Synchronous execution registration prevents duplicate sends from rapid shortcuts. Cancellation during workspace persistence stops the subsequent network send. Result/error/cleanup updates require a matching execution ID, so closing and reopening a request cannot receive an older execution's result or lose its new Cancel state.
+- Browser regression coverage includes failure, cancellation/retry in both languages, cancellation before send, rapid shortcuts and closing/reopening while an older execution completes.
+
+Pending: explicit collection Save vs automatic draft saving; frozen execution environment/request context; stable key-value row identity/paste; variable inspector; Console selection/maximization; shared viewer for MCP execution details. Existing collection autosave and save-before-send behavior remain in place.
 
 ## Phase C — scripts
 

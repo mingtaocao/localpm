@@ -169,7 +169,9 @@ test("full UI workflow using real Rust HTTP and SQLite, including backend restar
     await page.getByRole("button", { name: "GET Echo", exact: true }).click();
     await page.getByRole("button", { name: "Send ↗" }).click();
     await expect(page.getByText("200 OK", { exact: true })).toBeVisible();
-    await page.locator(".collection").filter({ hasText: "basic" }).click();
+    await page
+      .getByRole("button", { name: "Edit collection basic", exact: true })
+      .click();
     await page.getByRole("button", { name: "Export Postman v2.1" }).click();
     await expect
       .poll(() => {

@@ -52,6 +52,7 @@ async function openWorkspace(
   page: Page,
   options: {
     send?: () => Promise<ResponseResult>;
+    cancel?: () => void | Promise<void>;
     save?: () => Promise<void>;
     theme?: string;
     openSavedRequest?: boolean;
@@ -121,6 +122,7 @@ async function openWorkspace(
       else drafts.delete(args.id);
     }
     if (cmd === "send_request") return options.send ? options.send() : response;
+    if (cmd === "cancel_request") return options.cancel?.();
     if (cmd === "get_history") return [];
     return null;
   });
@@ -499,7 +501,7 @@ test("minimum window retains request, response and console controls, including c
   await expect(page.locator(".console")).toHaveCount(0);
 });
 
-test("a new execution clears previous results and network failure keeps diagnostics optional", async ({
+test("a new execution preserves the previous response and network failure keeps diagnostics optional", async ({
   page,
 }) => {
   let calls = 0;
@@ -523,16 +525,26 @@ test("a new execution clears previous results and network failure keeps diagnost
   await expect(page.locator(".response-context")).toContainText("DEV");
   await page.getByRole("button", { name: "Send ↗", exact: true }).click();
   await expect(
-    page.getByText("Sending request…", { exact: true }),
+    page.getByText("Sending request… Previous response remains available.", {
+      exact: true,
+    }),
   ).toBeVisible();
-  await expect(page.locator(".response .cm-content")).toHaveCount(0);
-  await expect(page.locator(".response-context")).toHaveCount(0);
+  await expect(page.locator(".response .cm-content")).toContainText(
+    "current-response",
+  );
+  await expect(page.locator(".response-context").first()).toContainText("DEV");
+  await expect(
+    page.getByText("Previous response", { exact: true }),
+  ).toBeVisible();
   await expect.poll(() => calls).toBe(2);
   rejectSend({ code: "NETWORK_ERROR", message: "Connection refused" });
   await expect(page.locator(".response [role=alert]")).toContainText(
     "NETWORK_ERROR",
   );
-  await expect(page.locator(".response .metrics")).toHaveCount(0);
+  await expect(page.locator(".response .metrics")).toContainText("200 OK");
+  await expect(page.locator(".response .cm-content")).toContainText(
+    "current-response",
+  );
   await expect(page.locator(".console")).toHaveCount(0);
   await page
     .getByRole("button", { name: "View diagnostics", exact: true })
@@ -542,6 +554,157 @@ test("a new execution clears previous results and network failure keeps diagnost
   await expect(page.locator(".console-details").first()).toContainText(
     "Connection refused",
   );
+});
+
+for (const language of ["en-US", "zh-CN"]) {
+  test(`${language}: cancellation retains the previous response and a successful retry replaces it`, async ({
+    page,
+  }) => {
+    let calls = 0;
+    let rejectSend: (reason: unknown) => void = () => {};
+    await openWorkspace(page, {
+      configure: (workspace) => {
+        workspace.settings.language = language;
+      },
+      // Open the collection request after bootstrap using the translated label.
+      openSavedRequest: false,
+      send: () => {
+        calls++;
+        if (calls === 2)
+          return new Promise((_, reject) => {
+            rejectSend = reject;
+          });
+        return Promise.resolve({
+          ...response,
+          body: calls === 1 ? '"first-result"' : '"new-result"',
+        });
+      },
+      cancel: () =>
+        rejectSend({ code: "REQUEST_CANCELLED", message: "Request cancelled" }),
+    });
+    await page.getByRole("button", { name: "GET Users", exact: true }).click();
+    const chinese = language === "zh-CN";
+    const send = page.getByRole("button", {
+      name: chinese ? "发送 ↗" : "Send ↗",
+      exact: true,
+    });
+    const body = page.locator(".response .cm-content");
+    await send.click();
+    await expect(body).toContainText("first-result");
+    await send.click();
+    await expect.poll(() => calls).toBe(2);
+    await page
+      .getByRole("button", { name: chinese ? "取消" : "Cancel", exact: true })
+      .click();
+    await expect(page.locator(".response [role=status]")).toHaveText(
+      chinese ? "请求已取消。" : "Request cancelled.",
+    );
+    await expect(page.locator(".response [role=alert]")).toHaveCount(0);
+    await expect(body).toContainText("first-result");
+    await expect(
+      page.getByText(chinese ? "上次响应" : "Previous response", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await send.click();
+    await expect(body).toContainText("new-result");
+    await expect(
+      page.getByText(chinese ? "上次响应" : "Previous response", {
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await expect(page.locator(".response [role=status]")).toHaveCount(0);
+  });
+}
+
+test("cancelling while persistence is pending prevents the network send", async ({
+  page,
+}) => {
+  let finishSave: () => void = () => {};
+  let saves = 0;
+  let sends = 0;
+  await openWorkspace(page, {
+    save: () =>
+      new Promise<void>((resolve) => {
+        saves++;
+        finishSave = resolve;
+      }),
+    send: async () => {
+      sends++;
+      return response;
+    },
+  });
+  await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  await expect.poll(() => saves).toBe(1);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  finishSave();
+  await expect(page.locator(".response [role=status]")).toHaveText(
+    "Request cancelled.",
+  );
+  await expect(
+    page.getByRole("button", { name: "Send ↗", exact: true }),
+  ).toBeVisible();
+  expect(sends).toBe(0);
+});
+
+test("rapid send shortcuts start only one execution", async ({ page }) => {
+  let sends = 0;
+  let finishSend: (result: ResponseResult) => void = () => {};
+  await openWorkspace(page, {
+    send: () => {
+      sends++;
+      return new Promise((resolve) => {
+        finishSend = resolve;
+      });
+    },
+  });
+  await page.evaluate(() => {
+    for (let i = 0; i < 2; i++)
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true }),
+      );
+  });
+  await expect.poll(() => sends).toBe(1);
+  finishSend(response);
+  await expect(page.locator(".response .cm-content")).toContainText(
+    "current-response",
+  );
+  expect(sends).toBe(1);
+});
+
+test("a closed execution cannot overwrite or unlock a reopened request", async ({
+  page,
+}) => {
+  const pending: Array<(result: ResponseResult) => void> = [];
+  await openWorkspace(page, {
+    send: () =>
+      new Promise((resolve) => {
+        pending.push(resolve);
+      }),
+  });
+  await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  await expect.poll(() => pending.length).toBe(1);
+  await page.getByTitle("Close tab (draft retained)", { exact: true }).click();
+  await showSidebar(page);
+  await page.getByRole("button", { name: "GET Users", exact: true }).click();
+  await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  await expect.poll(() => pending.length).toBe(2);
+  pending[0]({ ...response, body: '"old-result"' });
+  // The Console confirms completion of the old promise, including its finally block.
+  await openMore(page);
+  await page.getByRole("button", { name: "⌘ Console", exact: false }).click();
+  await expect(page.locator(".console-entry").last()).toContainText("500");
+  await expect(page.locator(".response .cm-content")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Cancel", exact: true }),
+  ).toBeVisible();
+  pending[1]({ ...response, body: '"new-result"' });
+  await expect(page.locator(".response .cm-content")).toContainText(
+    "new-result",
+  );
+  await expect(
+    page.getByRole("button", { name: "Send ↗", exact: true }),
+  ).toBeVisible();
 });
 
 test("environment inspection and editing never activates it, and deleting another environment retains the active one", async ({
@@ -1020,7 +1183,9 @@ test("adding within a folder fixes the destination at creation even after resour
     "API / Child folder",
   );
   await page.getByLabel("Request name").fill("Scoped request");
-  await page.getByRole("button", { name: "Other API", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Edit collection Other API", exact: true })
+    .click();
   await page.getByRole("button", { name: "Close ×", exact: true }).click();
   await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
   await expect
@@ -1235,7 +1400,9 @@ for (const theme of ["light", "dark"]) {
     await page.locator(".collection").hover();
     await expect(add).toHaveCSS("opacity", "1");
     await page.screenshot({ path: `artifacts/tree-disclosures-${theme}.png` });
-    await page.locator(".collection").click();
+    await page
+      .getByRole("button", { name: "Edit collection API", exact: true })
+      .click();
     await expect(
       page.getByRole("heading", { name: "Collection", exact: true }),
     ).toBeVisible();
@@ -1310,4 +1477,85 @@ test("adding a request expands the folder and persists that expansion after relo
   await expect(
     page.getByRole("button", { name: "GET Users", exact: true }),
   ).toBeVisible();
+});
+
+test("branch text, trailing label space and row padding toggle without opening settings", async ({
+  page,
+}) => {
+  await openWorkspace(page, { configure: nestUsers });
+  await showSidebar(page);
+  const users = page.getByRole("button", { name: "GET Users", exact: true });
+  for (const name of ["API", "Users folder"]) {
+    const label = page.getByRole("button", { name, exact: true });
+    await label.locator("span").click();
+    await expect(label).toHaveAttribute("aria-expanded", "false");
+    await expect(users).toBeHidden();
+    await expect(page.locator(".panel")).toHaveCount(0);
+    const box = (await label.boundingBox())!;
+    await label.click({ position: { x: box.width - 3, y: box.height / 2 } });
+    await expect(label).toHaveAttribute("aria-expanded", "true");
+    await expect(users).toBeVisible();
+    const row = page.locator(".tree-row").filter({ has: label });
+    await row.click({ position: { x: 2, y: 18 } });
+    await expect(label).toHaveAttribute("aria-expanded", "false");
+    await label.press("Space");
+    await expect(label).toHaveAttribute("aria-expanded", "true");
+  }
+  const folder = page.getByRole("button", {
+    name: "Users folder",
+    exact: true,
+  });
+  await folder.press("Enter");
+  await expect(folder).toHaveAttribute("aria-expanded", "false");
+  await page
+    .getByRole("button", { name: "Edit folder Users folder", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Folder", exact: true }),
+  ).toBeVisible();
+  await expect(folder).toHaveAttribute("aria-expanded", "false");
+  await folder.click();
+  await expect(folder).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator(".panel")).toHaveCount(0);
+  await folder.click();
+  await page.reload();
+  await showSidebar(page);
+  await expect(folder).toHaveAttribute("aria-expanded", "false");
+  await folder.click();
+  await expect(users).toBeVisible();
+  await users.click();
+  await expect(page.getByLabel("Request URL", { exact: true })).toHaveValue(
+    "https://example.test/users?page=1",
+  );
+  await expect(page.locator(".panel")).toHaveCount(0);
+});
+
+test("text toggling in search preserves the normal collection layout", async ({
+  page,
+}) => {
+  await openWorkspace(page, { configure: nestUsers });
+  await showSidebar(page);
+  const collection = page.getByRole("button", { name: "API", exact: true });
+  await collection.click();
+  const search = page.getByPlaceholder("Search name or URL  ⌘K");
+  await search.fill("Users");
+  await expect(collection).toHaveAttribute("aria-expanded", "true");
+  const folder = page.getByRole("button", {
+    name: "Users folder",
+    exact: true,
+  });
+  await folder.click();
+  await expect(
+    page.getByRole("button", { name: "GET Users", exact: true }),
+  ).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "Expand Users folder", exact: true }),
+  ).toHaveAttribute("aria-expanded", "false");
+  await folder.click();
+  await expect(
+    page.getByRole("button", { name: "GET Users", exact: true }),
+  ).toBeVisible();
+  await search.clear();
+  await expect(collection).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(".panel")).toHaveCount(0);
 });
