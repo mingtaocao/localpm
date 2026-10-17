@@ -34,8 +34,7 @@
   --method-put: #3c72bc;
   --method-patch: #865ab1;
   --method-delete: #bd4444;
-  --unsaved-dot: #e8a20c;
-  --unsaved-dot-border: #9b6500;
+  --unsaved-dot: #e7ad38;
   --unsaved-text: #865800;
   --editor-cursor: #20252d;
   --editor-selection: #99c2f1;
@@ -83,8 +82,7 @@
   --method-put: #80aaf0;
   --method-patch: #bd9be9;
   --method-delete: #e57676;
-  --unsaved-dot: #ffc857;
-  --unsaved-dot-border: #ffd989;
+  --unsaved-dot: #e5b75a;
   --unsaved-text: #ffc857;
   --editor-cursor: #f4f7ff;
   --editor-selection: #365f96;
@@ -1891,10 +1889,9 @@ aside nav.resource-navigation .active {
   white-space: nowrap;
 }
 .tab-dirty-indicator {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
-  border: 1px solid var(--unsaved-dot-border);
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
   border-radius: 50%;
   background: var(--unsaved-dot);
 }
