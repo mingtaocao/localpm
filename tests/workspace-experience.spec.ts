@@ -51,9 +51,14 @@ async function saveRequest(page: Page) {
 async function openWorkspace(
   page: Page,
   options: {
-    send?: () => Promise<ResponseResult>;
+    send?: (args: {
+      request: RequestSpec;
+      executionId: string;
+      workspace?: Workspace;
+    }) => Promise<ResponseResult>;
     cancel?: () => void | Promise<void>;
     save?: () => Promise<void>;
+    draft?: (id: string, request: RequestSpec | null) => Promise<void>;
     theme?: string;
     openSavedRequest?: boolean;
     configure?: (workspace: Workspace) => void;
@@ -109,6 +114,7 @@ async function openWorkspace(
   };
   options.configure?.(workspace);
   const drafts = new Map<string, RequestSpec>();
+  const draftWrites: Array<{ id: string; request: RequestSpec | null }> = [];
   await page.exposeBinding("__experienceInvoke", async (_, cmd, args) => {
     if (cmd === "app_bootstrap")
       return { workspace, drafts: [...drafts.values()], history: [] };
@@ -118,10 +124,13 @@ async function openWorkspace(
       return workspace;
     }
     if (cmd === "save_draft") {
+      await options.draft?.(args.id, args.request);
       if (args.request) drafts.set(args.id, structuredClone(args.request));
       else drafts.delete(args.id);
+      draftWrites.push({ id: args.id, request: structuredClone(args.request) });
     }
-    if (cmd === "send_request") return options.send ? options.send() : response;
+    if (cmd === "send_request")
+      return options.send ? options.send(args) : response;
     if (cmd === "cancel_request") return options.cancel?.();
     if (cmd === "get_history") return [];
     return null;
@@ -140,8 +149,190 @@ async function openWorkspace(
       .getByRole("button", { name: "Hide requests", exact: true })
       .click();
   }
-  return { read: () => workspace, drafts };
+  return { read: () => workspace, drafts, draftWrites };
 }
+
+test("editing then immediately switching tabs preserves the draft through reload", async ({
+  page,
+}) => {
+  const backend = await openWorkspace(page);
+  const url = "https://example.test/unsaved-before-switch";
+  await page.getByLabel("Request URL", { exact: true }).fill(url);
+  await page.getByRole("button", { name: "New request", exact: true }).click();
+  await expect.poll(() => backend.drafts.get("request")?.url).toBe(url);
+  expect(backend.read().items[0].request?.url).not.toBe(url);
+  await page.reload();
+  await showSidebar(page);
+  await page.getByRole("button", { name: "GET Users", exact: true }).click();
+  await expect(page.getByLabel("Request URL", { exact: true })).toHaveValue(
+    url,
+  );
+});
+
+test("closing and reopening a collection request restores its retained draft", async ({
+  page,
+}) => {
+  const backend = await openWorkspace(page);
+  const url = "https://example.test/retained-after-close";
+  await page.getByLabel("Request URL", { exact: true }).fill(url);
+  await page.getByTitle("Close tab (draft retained)", { exact: true }).click();
+  await expect.poll(() => backend.drafts.get("request")?.url).toBe(url);
+  await showSidebar(page);
+  await page.getByRole("button", { name: "GET Users", exact: true }).click();
+  await expect(page.getByLabel("Request URL", { exact: true })).toHaveValue(
+    url,
+  );
+  await expect(
+    page.getByRole("button", { name: "Request tab: Users", exact: true }),
+  ).toHaveAccessibleDescription("Unsaved changes");
+});
+
+test("an older draft write cannot resurrect a draft after explicit save", async ({
+  page,
+}) => {
+  let finishDraft: () => void = () => {};
+  let started = false;
+  const backend = await openWorkspace(page, {
+    draft: (_, request) =>
+      request && !started
+        ? new Promise<void>((resolve) => {
+            started = true;
+            finishDraft = resolve;
+          })
+        : Promise.resolve(),
+  });
+  const url = "https://example.test/explicitly-saved";
+  await page.getByLabel("Request URL", { exact: true }).fill(url);
+  await expect.poll(() => started).toBe(true);
+  await saveRequest(page);
+  await expect.poll(() => backend.read().items[0].request?.url).toBe(url);
+  finishDraft();
+  await expect.poll(() => backend.draftWrites.length).toBeGreaterThanOrEqual(2);
+  await expect(page.locator(".save-status")).toHaveText("Saved to API");
+  expect(backend.drafts.has("request")).toBe(false);
+});
+
+test("editing and switching during slow close preserves the newest draft and current tab", async ({
+  page,
+}) => {
+  let finishDraft: () => void = () => {};
+  let writes = 0;
+  const backend = await openWorkspace(page, {
+    draft: (_, request) =>
+      request && ++writes === 1
+        ? new Promise<void>((resolve) => {
+            finishDraft = resolve;
+          })
+        : Promise.resolve(),
+  });
+  await page
+    .getByLabel("Request URL", { exact: true })
+    .fill("https://example.test/before-close");
+  await page.getByTitle("Close tab (draft retained)", { exact: true }).click();
+  await expect.poll(() => writes).toBe(1);
+  const url = "https://example.test/edited-during-close";
+  await page.getByLabel("Request URL", { exact: true }).fill(url);
+  await page.getByRole("button", { name: "New request", exact: true }).click();
+  finishDraft();
+  await expect(
+    page.getByRole("button", { name: "Request tab: Users", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByLabel("Request URL", { exact: true })).toHaveValue("");
+  await expect.poll(() => backend.drafts.get("request")?.url).toBe(url);
+  await showSidebar(page);
+  await page.getByRole("button", { name: "GET Users", exact: true }).click();
+  await expect(page.getByLabel("Request URL", { exact: true })).toHaveValue(
+    url,
+  );
+});
+
+test("sending freezes the clicked environment while persistence and UI changes continue", async ({
+  page,
+}) => {
+  let saves = 0;
+  let finishSave: () => void = () => {};
+  let sentEnvironment: string | null | undefined;
+  let sentUrl = "";
+  const backend = await openWorkspace(page, {
+    save: () =>
+      ++saves === 1
+        ? new Promise<void>((resolve) => {
+            finishSave = resolve;
+          })
+        : Promise.resolve(),
+    send: async (args) => {
+      const context = args.workspace ?? backend.read();
+      sentEnvironment = context.activeEnvironment;
+      sentUrl = args.request.url;
+      return {
+        ...response,
+        finalUrl: `https://${sentEnvironment?.toLowerCase()}.test/users`,
+      };
+    },
+  });
+  await page.getByLabel("Request URL", { exact: true }).fill("{{host}}/users");
+  await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  await expect.poll(() => saves).toBe(1);
+  await page
+    .getByLabel("Active environment", { exact: true })
+    .selectOption("STAGING");
+  await page
+    .getByLabel("Request URL", { exact: true })
+    .fill("{{host}}/changed-during-send");
+  finishSave();
+  await expect(
+    page.getByRole("button", { name: "Send ↗", exact: true }),
+  ).toBeVisible();
+  expect(sentEnvironment).toBe("DEV");
+  expect(sentUrl).toBe("{{host}}/users");
+  await expect(
+    page.getByLabel("Active environment", { exact: true }),
+  ).toHaveValue("STAGING");
+  await expect(page.locator(".response-context")).toContainText("DEV");
+});
+
+test("a failed close retains the editable tab and allows retry", async ({
+  page,
+}) => {
+  let failWrite = true;
+  const backend = await openWorkspace(page, {
+    draft: async () => {
+      if (failWrite) throw { code: "SAVE_ERROR", message: "Disk full" };
+    },
+  });
+  const url = "https://example.test/keep-after-failure";
+  await page.getByLabel("Request URL", { exact: true }).fill(url);
+  await page.getByTitle("Close tab (draft retained)", { exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("SAVE_ERROR");
+  await expect(page.getByLabel("Request URL", { exact: true })).toHaveValue(
+    url,
+  );
+  await expect(
+    page.getByRole("button", { name: "Request tab: Users", exact: true }),
+  ).toHaveAccessibleDescription("Unsaved changes");
+  failWrite = false;
+  await page.getByTitle("Close tab (draft retained)", { exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Request tab: Users", exact: true }),
+  ).toHaveCount(0);
+  expect(backend.drafts.get("request")?.url).toBe(url);
+});
+
+test("delayed collection autosave preserves a newer environment selection", async ({
+  page,
+}) => {
+  const backend = await openWorkspace(page);
+  await page.getByLabel("Value 1", { exact: true }).fill("2");
+  await page
+    .getByLabel("Active environment", { exact: true })
+    .selectOption("STAGING");
+  await expect(page.locator(".save-status")).toHaveText("Saved to API");
+  expect(backend.read().items[0].request?.params[0].value).toBe("2");
+  expect(backend.read().activeEnvironment).toBe("STAGING");
+  await expect(
+    page.getByLabel("Active environment", { exact: true }),
+  ).toHaveValue("STAGING");
+});
 
 test("starts with discoverable requests and method selection in the workspace", async ({
   page,

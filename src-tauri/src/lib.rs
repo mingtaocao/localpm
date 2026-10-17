@@ -43,8 +43,12 @@ async fn send_request(
     state: tauri::State<'_, AppState>,
     request: RequestSpec,
     execution_id: String,
+    workspace: Option<Workspace>,
 ) -> Result<Response> {
-    let workspace = state.service.storage.load()?;
+    let workspace = match workspace {
+        Some(snapshot) => snapshot,
+        None => state.service.storage.load()?,
+    };
     let context = service::ExecutionContext::from_workspace(&workspace, &request, "manual");
     let prepared = http::prepare(&workspace, &request)?;
     state.service.execute(prepared, execution_id, context).await

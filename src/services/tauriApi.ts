@@ -18,8 +18,8 @@ export const api = {
     invoke<Workspace>("save_workspace", { workspace }),
   draft: (id: string, request: RequestSpec | null) =>
     invoke("save_draft", { id, request }),
-  send: (request: RequestSpec, executionId: string) =>
-    invoke<ResponseResult>("send_request", { request, executionId }),
+  send: (request: RequestSpec, executionId: string, workspace?: Workspace) =>
+    invoke<ResponseResult>("send_request", { request, executionId, workspace }),
   cancel: (executionId: string) => invoke("cancel_request", { executionId }),
   cancelExecution: (id: string) =>
     invoke("cancel_request", { executionId: id }),
