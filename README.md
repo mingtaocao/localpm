@@ -52,9 +52,11 @@ npm run tauri dev
 
 `package.json` 的 `version` 是唯一版本来源：页面直接读取，Tauri 配置引用 `../package.json`，Rust 与锁文件由脚本同步。无需逐个修改文件。
 
+提交新功能时必须同步升级版本号，默认递增 minor 并将 patch 归零；修复递增 patch。每次功能交付只升级一次，版本文件与功能一起提交。项目默认规则见 [AGENTS.md](AGENTS.md)。
+
 ```sh
 # 指定下一版本；同步所有版本文件，不自动提交或创建 tag
-npm version 0.10.0 --no-git-tag-version
+npm version 0.12.0 --no-git-tag-version
 # 也可以递增：npm version minor --no-git-tag-version
 # 手动编辑 package.json 后同步
 npm run version:sync
