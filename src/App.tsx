@@ -16,6 +16,8 @@ import {
 import { responsePresentation } from "./components/editor/responsePresentation";
 import { api } from "./services/tauriApi";
 import { useWorkspace } from "./stores/workspace";
+import { RequestDrafts } from "./stores/drafts";
+import { executionWorkspace } from "./stores/executionContext";
 import {
   newRequest,
   paramsFromUrl,
@@ -64,6 +66,8 @@ export default function App() {
     error: storeError,
   } = useWorkspace();
   const [tabs, setTabs] = useState<Tab[]>([]);
+  const [drafts] = useState(() => new RequestDrafts(api.draft));
+  useEffect(() => () => drafts.dispose(), [drafts]);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const activeSends = useRef(
@@ -322,6 +326,7 @@ export default function App() {
     api
       .bootstrap()
       .then((b) => {
+        drafts.restore(b.drafts);
         setWorkspace(b.workspace);
         setHistory(b.history);
         if (b.drafts.length) {
@@ -335,7 +340,7 @@ export default function App() {
         }
       })
       .catch(fail);
-  }, [setWorkspace]);
+  }, [setWorkspace, drafts]);
   const updateTab = (id: string, p: Partial<Tab>) =>
     setTabs((ts) => ts.map((t) => (t.request.id === id ? { ...t, ...p } : t)));
   const setView = (patch: Partial<RequestView>) =>
@@ -346,49 +351,51 @@ export default function App() {
     setView({ responseFormat });
   const setHeaderSearch = (headerSearch: string) => setView({ headerSearch });
   const edit = (p: Partial<RequestSpec>) => {
-    if (r)
+    if (r) {
+      const request = { ...r, ...p };
+      drafts.stage(request);
       updateTab(r.id, {
-        request: { ...r, ...p },
+        request,
         dirty: true,
         saveState: undefined,
       });
+    }
   };
   useEffect(() => {
-    if (!tab?.dirty) return;
-    const request = tab.request;
-    const storedInCollection = !!w?.items.some(
-      (i) => i.request?.id === request.id,
-    );
-    const t = setTimeout(() => {
-      if (!storedInCollection) updateTab(request.id, { saveState: "saving" });
-      void api
-        .draft(request.id, request)
-        .then(() => {
-          if (!storedInCollection)
-            setTabs((ts) =>
-              ts.map((t) =>
-                t.request === request && t.dirty
-                  ? { ...t, saveState: "draft" }
-                  : t,
-              ),
-            );
-        })
-        .catch((e) => {
-          setTabs((ts) =>
-            ts.map((t) =>
-              t.request === request && t.dirty
-                ? { ...t, saveState: "failed" }
-                : t,
-            ),
-          );
+    for (const tab of tabs) {
+      const request = tab.request;
+      if (!tab.dirty) {
+        drafts.cancel(request.id);
+        continue;
+      }
+      const storedInCollection = !!useWorkspace
+        .getState()
+        .workspace?.items.some((item) => item.request?.id === request.id);
+      const setSaveState = (saveState: Tab["saveState"]) =>
+        setTabs((tabs) =>
+          tabs.map((tab) =>
+            tab.request === request && tab.dirty ? { ...tab, saveState } : tab,
+          ),
+        );
+      drafts.schedule(request, {
+        started: () => {
+          if (!storedInCollection) setSaveState("saving");
+        },
+        saved: () => {
+          if (!storedInCollection) setSaveState("draft");
+        },
+        failed: (e) => {
+          setSaveState("failed");
           fail(e);
-        });
-    }, 500);
-    return () => clearTimeout(t);
-  }, [tab?.request, tab?.dirty]);
+        },
+      });
+    }
+  }, [tabs, drafts]);
   const save = async (target?: SaveTarget) => {
-    if (!r || !w) return;
-    const items = [...w.items];
+    // A delayed autosave must merge into the latest workspace, not its timer's closure.
+    const workspace = useWorkspace.getState().workspace;
+    if (!r || !workspace) return;
+    const items = [...workspace.items];
     const i = items.findIndex((i) => i.request?.id === r.id);
     let savedItemId = items[i]?.id;
     if (i >= 0) items[i] = { ...items[i], name: r.name, request: r };
@@ -398,9 +405,9 @@ export default function App() {
         setModal("Save request");
         return;
       }
-      const c = w.collections.find((c) => c.id === target.collectionId);
+      const c = workspace.collections.find((c) => c.id === target.collectionId);
       const folder = target.parentId
-        ? w.items.find(
+        ? workspace.items.find(
             (item) =>
               item.id === target.parentId &&
               item.kind === "folder" &&
@@ -426,15 +433,15 @@ export default function App() {
     }
     updateTab(r.id, { saveState: "saving" });
     try {
-      await persist({ ...w, items });
+      await persist({ ...workspace, items });
       if (savedItemId && activeRef.current === r.id) setSelected(savedItemId);
       if (target) setModal("");
       // Editing can continue while persistence is in flight. Preserve any newer draft.
-      const current = tabsRef.current.find((t) => t.request.id === r.id);
-      await api.draft(
-        r.id,
-        current && current.request !== r ? current.request : null,
-      );
+      const current =
+        tabsRef.current.find((t) => t.request.id === r.id)?.request ??
+        drafts.get(r.id);
+      if (current && current !== r) await drafts.save(current);
+      else await drafts.remove(r.id);
       setTabs((ts) =>
         ts.map((t) =>
           t.request === r ? { ...t, dirty: false, saveState: "saved" } : t,
@@ -462,6 +469,7 @@ export default function App() {
     setView({ requestSection: name });
   };
   const openRequest = (request: RequestSpec) => {
+    const draft = drafts.get(request.id);
     if (!tabs.some((t) => t.request.id === request.id))
       setTabs((ts) => [
         ...ts.filter(
@@ -472,7 +480,7 @@ export default function App() {
             t.request.url ||
             w?.items.some((i) => i.request?.id === t.request.id),
         ),
-        { request, dirty: false },
+        { request: draft ?? request, dirty: !!draft },
       ]);
     activateRequest(request.id);
   };
@@ -532,6 +540,7 @@ export default function App() {
   };
   const newTab = () => {
     const request = newRequest();
+    drafts.stage(request);
     setTabs((ts) => [...ts, { request, dirty: true }]);
     activateRequest(request.id);
   };
@@ -573,15 +582,32 @@ export default function App() {
     if (execution.started) await api.cancel(execution.id);
   };
   const closeTab = async (id: string) => {
-    const t = tabs.find((t) => t.request.id === id);
-    if (t?.dirty) await api.draft(id, t.request);
+    let closing = tabsRef.current.find((tab) => tab.request.id === id);
+    // Input can continue while a slow draft write is in flight.
+    while (closing?.dirty) {
+      const request = closing.request;
+      try {
+        await drafts.save(request);
+      } catch (error) {
+        updateTab(id, { saveState: "failed" });
+        throw error;
+      }
+      closing = tabsRef.current.find((tab) => tab.request.id === id);
+      if (closing?.request === request) break;
+    }
     await cancelRequest(id);
     activeSends.current.delete(id);
+    const currentTabs = tabsRef.current;
+    const index = currentTabs.findIndex((tab) => tab.request.id === id);
     setTabs((ts) => ts.filter((t) => t.request.id !== id));
     // The unmounted editor saves its session during cleanup; remove it after that render.
     requestAnimationFrame(() => editorSessions.forgetRequest(id));
-    if (active === id) {
-      activateRequest(tabs.find((t) => t.request.id !== id)?.request.id ?? "");
+    if (activeRef.current === id) {
+      activateRequest(
+        currentTabs[index + 1]?.request.id ??
+          currentTabs[index - 1]?.request.id ??
+          "",
+      );
     }
   };
   const send = async () => {
@@ -600,6 +626,7 @@ export default function App() {
       );
     const started = performance.now();
     const request = structuredClone(r);
+    const context = executionWorkspace(w, request.id);
     const sentEnvironment = environment?.name ?? tr("No environment");
     const baseEntry: ConsoleEntry = {
       id,
@@ -623,7 +650,7 @@ export default function App() {
       if (execution.cancelled)
         throw { code: "REQUEST_CANCELLED", message: "Request cancelled" };
       execution.started = true;
-      const result = await api.send(request, id);
+      const result = await api.send(request, id, context);
       updateExecution({
         response: result,
         responseIsPrevious: false,
@@ -706,7 +733,7 @@ export default function App() {
         if (key === "n") newTab();
         if (key === "w") {
           if (modal) setModal("");
-          else if (active) void closeTab(active);
+          else if (active) void closeTab(active).catch(fail);
         }
         if (key === "k") {
           setSidebarOpen(true);
@@ -793,7 +820,7 @@ export default function App() {
     requestAnimationFrame(() => {
       for (const id of requestIds) if (id) editorSessions.forgetRequest(id);
     });
-    for (const id of requestIds) if (id) await api.draft(id, null);
+    for (const id of requestIds) if (id) await drafts.remove(id);
     if (requestIds.has(active))
       setActive(
         tabs.find((t) => !requestIds.has(t.request.id))?.request.id ?? "",
@@ -1244,7 +1271,7 @@ export default function App() {
                   </button>
                   <button
                     title={tr("Close tab (draft retained)")}
-                    onClick={() => void closeTab(t.request.id)}
+                    onClick={() => void closeTab(t.request.id).catch(fail)}
                   >
                     ×
                   </button>
