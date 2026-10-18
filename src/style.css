@@ -2392,7 +2392,7 @@ button.primary {
 }
 .code-editor:focus-within {
   border-color: var(--focus);
-  box-shadow: inset 0 0 0 1px var(--focus);
+  box-shadow: none;
 }
 .code-editor-toolbar {
   display: flex;
@@ -2406,8 +2406,7 @@ button.primary {
   font-size: 12px;
   line-height: 1.4;
 }
-.code-editor-toolbar button,
-.code-editor-toolbar select {
+.code-editor-toolbar > button {
   padding: 4px 6px;
   font-size: 12px;
   min-height: 28px;
@@ -2421,13 +2420,8 @@ button.primary {
   color: var(--muted);
   font-size: 12px;
 }
-.code-editor-font {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
 .code-editor-position {
+  margin-left: auto;
   min-width: 95px;
   font-variant-numeric: tabular-nums;
 }
@@ -2530,3 +2524,72 @@ button.primary {
     display: none;
   }
 }
+
+/* Quiet auxiliary actions; inputs, selected states and Send keep their emphasis. */
+.sidebar-tools button,
+.sidebar-bottom button,
+.request-identity > button,
+.console-toolbar button,
+.console-detail-toolbar button,
+.code-editor-toolbar > button,
+.body-options button,
+.panel > button:not(.primary),
+.form label > button,
+.response-header button,
+.mcp-connection-actions button,
+.mcp-settings-content > button {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.sidebar-tools button:not(:disabled):hover,
+.sidebar-bottom button:not(:disabled):hover,
+.request-identity > button:not(:disabled):hover,
+.console-toolbar button:not(:disabled):hover,
+.console-detail-toolbar button:not(:disabled):hover,
+.code-editor-toolbar > button:not(:disabled):hover,
+.panel > button:not(.primary):not(:disabled):hover,
+.mcp-connection-actions button:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--hover);
+}
+.code-editor-toolbar > button[aria-pressed="true"] {
+  background: var(--selected);
+  color: var(--accent);
+}
+.code-editor-toolbar .more-menu > summary {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  flex-basis: 28px;
+  padding: 6px;
+}
+.code-editor-toolbar .dropdown-menu button {
+  padding: 8px 10px;
+  min-height: 34px;
+  font-size: 13px;
+}
+.copy-feedback {
+  color: var(--accent);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.kv-row > button:disabled {
+  visibility: hidden;
+}
+
+.scripts-editor { display: flex; flex-direction: column; min-height: 260px; flex: 1; gap: 8px; }
+.script-tabs, .script-options { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.script-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; padding: 8px 12px; }
+.script-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.script-options label { display: flex; align-items: center; gap: 6px; }
+.scripts-editor .code-editor { min-height: 180px; flex: 1; }
+.scripts-editor .muted { font-size: 12px; margin: 0; }
+.script-results { margin: 6px 10px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; }
+.script-results summary { cursor: pointer; }
+.script-results section { margin-top: 8px; }
+.script-results pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; }
+.scripts-editor { flex-shrink: 0; min-height: 300px; }
+.script-tabs, .script-options, .script-help, .advanced-heading { flex-shrink: 0; }
+.script-help { color: var(--muted); font-size: 12px; }
+.script-help summary { cursor: pointer; }

@@ -43,7 +43,7 @@ test("secret editing commits the complete value on blur", async ({ page }) => {
     .click();
   await page.getByRole("button", { name: "＋ Add row", exact: true }).click();
   await page.getByLabel("Key 1", { exact: true }).fill("token");
-  await page.getByLabel("Secret", { exact: true }).check();
+  await page.getByLabel("Secret row 1", { exact: true }).check();
   await page
     .getByLabel("Value 1", { exact: true })
     .pressSequentially("complete-secret-value", { delay: 25 });
@@ -115,7 +115,13 @@ test("10000 requests use bounded DOM and searchable virtual tree", async ({
     page.getByRole("button", { name: "GET Request 0", exact: true }),
   ).toBeVisible();
   expect(await page.locator(".tree-row").count()).toBeLessThanOrEqual(50);
-  await page.getByPlaceholder("Search name or URL  ⌘K").fill("Request 9999");
+  await page
+    .getByPlaceholder(
+      process.platform === "darwin"
+        ? "Search name or URL  ⌘K"
+        : "Search name or URL  Ctrl+K",
+    )
+    .fill("Request 9999");
   await expect(
     page.getByRole("button", { name: "GET Request 9999", exact: true }),
   ).toBeVisible();

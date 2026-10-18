@@ -14,7 +14,12 @@ async function showSidebar(page: Page) {
 }
 
 async function saveRequest(page: Page) {
-  await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: process.platform === "darwin" ? "Save ⌘S" : "Save Ctrl+S",
+      exact: true,
+    })
+    .click();
   if (await page.getByLabel("Save location", { exact: true }).isVisible()) {
     await page
       .getByLabel("Save location", { exact: true })

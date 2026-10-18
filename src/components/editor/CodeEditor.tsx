@@ -15,6 +15,8 @@ import { EditorView, keymap } from "@codemirror/view";
 import { foldAll, unfoldAll } from "@codemirror/language";
 import { openSearchPanel } from "@codemirror/search";
 import { useTranslation } from "react-i18next";
+import { MoreMenu } from "../MoreMenu";
+import { platformShortcut } from "../../utils/shortcuts";
 import { editorPhrases } from "../../i18n/editor";
 import { useEditorPreferences } from "../../stores/editorPreferences";
 import {
@@ -58,7 +60,7 @@ export function CodeEditor({
   wrapRef.current = wrap;
   const [position, setPosition] = useState({ line: 1, column: 1 });
   const [formatError, setFormatError] = useState("");
-  const { fontSize, setFontSize } = useEditorPreferences();
+  const { fontSize } = useEditorPreferences();
 
   const formatJson = (view: EditorView) => {
     if (
@@ -237,7 +239,11 @@ export function CodeEditor({
         {readOnly && (
           <span className="code-editor-readonly">{t("Read only")}</span>
         )}
-        <button type="button" onClick={() => run(openSearchPanel)}>
+        <button
+          type="button"
+          title={`${t("Find")} (${platformShortcut("F")})`}
+          onClick={() => run(openSearchPanel)}
+        >
           {t("Find")}
         </button>
         <button
@@ -247,40 +253,26 @@ export function CodeEditor({
         >
           {t("Word wrap")}
         </button>
+        {!readOnly && language === "json" && (
+          <button
+            type="button"
+            disabled={value.length > 5 * 1024 * 1024}
+            title={`${t("Format JSON")} (${platformShortcut("Shift+F")})`}
+            onClick={() => run(formatJson)}
+          >
+            {t("Format JSON")}
+          </button>
+        )}
         {language !== "text" && (
-          <>
+          <MoreMenu label={t("Editor actions")}>
             <button type="button" onClick={() => run(foldAll)}>
               {t("Fold all")}
             </button>
             <button type="button" onClick={() => run(unfoldAll)}>
               {t("Unfold all")}
             </button>
-          </>
+          </MoreMenu>
         )}
-        {!readOnly && language === "json" && (
-          <button
-            type="button"
-            disabled={value.length > 5 * 1024 * 1024}
-            title={t("Format JSON (Ctrl/Cmd+Shift+F)")}
-            onClick={() => run(formatJson)}
-          >
-            {t("Format JSON")}
-          </button>
-        )}
-        <label className="code-editor-font">
-          {t("Editor font size")}
-          <select
-            aria-label={t("Editor font size")}
-            value={fontSize}
-            onChange={(event) => setFontSize(Number(event.target.value))}
-          >
-            {[12, 13, 14, 15, 16, 18, 20].map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </label>
         <span className="code-editor-position">
           {t("Line %{line}, column %{column}", position)}
         </span>

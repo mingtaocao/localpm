@@ -4,12 +4,15 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppError {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
     pub code: String,
     pub message: String,
 }
 impl AppError {
     pub fn new(code: &str, message: impl ToString) -> Self {
         Self {
+            details: None,
             code: code.into(),
             message: message.to_string(),
         }
@@ -104,6 +107,7 @@ pub struct Environment {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Workspace {
+    pub variable_revision: u64,
     pub collections: Vec<Collection>,
     pub items: Vec<Item>,
     pub environments: Vec<Environment>,
@@ -114,6 +118,7 @@ pub struct Workspace {
 impl Default for Workspace {
     fn default() -> Self {
         Self {
+            variable_revision: 0,
             collections: vec![],
             items: vec![],
             environments: vec![],
@@ -126,6 +131,8 @@ impl Default for Workspace {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Response {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scripts: Option<Value>,
     pub status: u16,
     pub status_text: String,
     pub headers: Vec<(String, String)>,

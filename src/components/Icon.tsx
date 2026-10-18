@@ -4,6 +4,7 @@ type IconName =
   | "plus"
   | "settings"
   | "more"
+  | "check"
   | "copy"
   | "close"
   | "search"
@@ -35,6 +36,7 @@ export function Icon({ name }: { name: IconName }) {
         <circle cx="19" cy="12" r="1" />
       </>
     ),
+    check: <path d="m5 12 4 4L19 6" />,
     copy: (
       <>
         <rect x="8" y="8" width="12" height="12" rx="2" />

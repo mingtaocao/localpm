@@ -527,3 +527,78 @@ async fn previews_and_request_details_hide_local_paths_unmarked_tokens_and_url_c
     );
     fixture.disable().await;
 }
+
+#[tokio::test]
+async fn scripts_preview_has_no_writes_run_uses_frozen_pre_script_and_post_updates_authorized_scope(
+) {
+    let fixture = Fixture::new().await;
+    let mut ws = fixture.service.storage.load().unwrap();
+    let r = ws
+        .items
+        .iter_mut()
+        .find(|i| i.id == "item-write")
+        .unwrap()
+        .request
+        .as_mut()
+        .unwrap();
+    r.body["raw"] = json!("{\"counter\":\"{{counter}}\"}");
+    r.metadata = json!({"localpmScriptsEnabled":true,"event":[
+        {"listen":"prerequest","script":{"exec":"pm.environment.set('counter',String(Number(pm.environment.get('counter') || 0)+1));"}},
+        {"listen":"test","script":{"exec":"pm.collectionVariables.set('lastCounter',pm.response.json().body.counter); pm.test('ok',()=>pm.response.to.have.status(200));"}}
+    ]});
+    fixture.service.save_workspace(ws).unwrap();
+    fixture.enable().await;
+    let preview = fixture.preview("request-write").await;
+    let mut ws = fixture.service.storage.load().unwrap();
+    let env = ws
+        .environments
+        .iter_mut()
+        .find(|e| e.id == "explicit")
+        .unwrap();
+    assert!(!env.variables.iter().any(|p| p.key == "counter"));
+    env.variables.push(Pair {
+        key: "counter".into(),
+        value: "100".into(),
+        ..Default::default()
+    });
+    fixture.service.save_workspace(ws).unwrap();
+    let first = fixture
+        .value("run_request", json!({"previewId":preview["previewId"]}))
+        .await;
+    let done = fixture.done(first["executionId"].as_str().unwrap()).await;
+    assert_eq!(done["status"], "completed");
+    assert_eq!(
+        done["response"]["scripts"]["postresponse"]["tests"][0]["passed"],
+        true
+    );
+    let ws = fixture.service.storage.load().unwrap();
+    assert_eq!(
+        ws.environments
+            .iter()
+            .find(|e| e.id == "explicit")
+            .unwrap()
+            .variables
+            .iter()
+            .find(|p| p.key == "counter")
+            .unwrap()
+            .value,
+        "1"
+    );
+    assert_eq!(
+        ws.collections
+            .iter()
+            .find(|c| c.id == "write")
+            .unwrap()
+            .variables
+            .iter()
+            .find(|p| p.key == "lastCounter")
+            .unwrap()
+            .value,
+        "1"
+    );
+    fixture
+        .value("run_request", json!({"previewId":preview["previewId"]}))
+        .await;
+    assert_eq!(fixture.target.count.load(Ordering::SeqCst), 1);
+    fixture.disable().await;
+}

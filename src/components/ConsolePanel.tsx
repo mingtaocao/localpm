@@ -1,5 +1,8 @@
 import { useEffect, useState, type PointerEvent } from "react";
+import { useCopyFeedback } from "../hooks/useCopyFeedback";
 import { layoutNumber, saveLayout } from "../stores/layout";
+import type { ScriptReport } from "../types";
+import { ScriptResults } from "./ScriptResults";
 import { useTranslation } from "react-i18next";
 
 export type RequestDiagnostic = {
@@ -18,6 +21,7 @@ export type RequestDiagnostic = {
 };
 
 export type ConsoleEntry = {
+  scripts?: ScriptReport | null;
   id: string;
   time: string;
   method: string;
@@ -81,7 +85,7 @@ export function ConsolePanel({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const [copied, setCopied] = useState<string | null>(null);
+  const { copied, copy } = useCopyFeedback();
   const [copyError, setCopyError] = useState<string | null>(null);
   const [height, setHeight] = useState(() => {
     const saved = layoutNumber(CONSOLE_HEIGHT_KEY, DEFAULT_CONSOLE_HEIGHT);
@@ -199,6 +203,7 @@ export function ConsolePanel({
                   <time title={t("Timestamp")}>{entry.time}</time>
                 </summary>
                 <div className="console-details">
+                  <ScriptResults report={entry.scripts} />
                   <div className="console-detail-toolbar">
                     <span>
                       {entry.prepared
@@ -207,12 +212,11 @@ export function ConsolePanel({
                     </span>
                     <button
                       onClick={() => {
-                        setCopied(null);
                         setCopyError(null);
-                        void navigator.clipboard
-                          .writeText(JSON.stringify(entry, null, 2))
-                          .then(() => setCopied(entry.id))
-                          .catch(() => setCopyError(entry.id));
+                        void copy(
+                          JSON.stringify(entry, null, 2),
+                          entry.id,
+                        ).catch(() => setCopyError(entry.id));
                       }}
                     >
                       {copied === entry.id

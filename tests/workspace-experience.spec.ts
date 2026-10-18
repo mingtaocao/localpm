@@ -37,7 +37,12 @@ async function openMore(page: Page) {
 }
 
 async function saveRequest(page: Page) {
-  await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: process.platform === "darwin" ? "Save ⌘S" : "Save Ctrl+S",
+      exact: true,
+    })
+    .click();
   if (await page.getByLabel("Save location", { exact: true }).isVisible()) {
     await page
       .getByLabel("Save location", { exact: true })
@@ -509,12 +514,13 @@ test("switching request tabs restores each request's collection variables and sc
   ).not.toHaveAttribute("title", /https:\/\/orders\.collection\.test/);
   await openMore(page);
   await page.getByRole("button", { name: "Scripts", exact: true }).click();
-  await expect(page.locator(".editor-content pre")).toContainText(
-    "users-only-script",
-  );
-  await expect(page.locator(".editor-content pre")).not.toContainText(
-    "orders-only-script",
-  );
+  await page.getByRole("tab", { name: "Pre-request", exact: true }).click();
+  await expect(
+    page.getByRole("textbox", { name: "Pre-request script", exact: true }),
+  ).toContainText("users-only-script");
+  await expect(
+    page.getByRole("textbox", { name: "Pre-request script", exact: true }),
+  ).not.toContainText("orders-only-script");
 
   await tabs
     .getByRole("button", { name: "Request tab: Orders", exact: true })
@@ -525,12 +531,13 @@ test("switching request tabs restores each request's collection variables and sc
   );
   await openMore(page);
   await page.getByRole("button", { name: "Scripts", exact: true }).click();
-  await expect(page.locator(".editor-content pre")).toContainText(
-    "orders-only-script",
-  );
-  await expect(page.locator(".editor-content pre")).not.toContainText(
-    "users-only-script",
-  );
+  await page.getByRole("tab", { name: "Pre-request", exact: true }).click();
+  await expect(
+    page.getByRole("textbox", { name: "Pre-request script", exact: true }),
+  ).toContainText("orders-only-script");
+  await expect(
+    page.getByRole("textbox", { name: "Pre-request script", exact: true }),
+  ).not.toContainText("users-only-script");
 });
 
 test("more actions opens by keyboard and dismisses after Escape, outside interaction and actions", async ({
@@ -641,7 +648,7 @@ test("minimum window retains request, response and console controls, including c
     "color",
     "rgb(189, 68, 68)",
   );
-  await page.getByRole("button", { name: "⌘ Console", exact: false }).click();
+  await page.getByRole("button", { name: "Console", exact: false }).click();
   const checkLayout = async () => {
     await expect
       .poll(async () =>
@@ -883,7 +890,7 @@ test("a closed execution cannot overwrite or unlock a reopened request", async (
   pending[0]({ ...response, body: '"old-result"' });
   // The Console confirms completion of the old promise, including its finally block.
   await openMore(page);
-  await page.getByRole("button", { name: "⌘ Console", exact: false }).click();
+  await page.getByRole("button", { name: "Console", exact: false }).click();
   await expect(page.locator(".console-entry").last()).toContainText("500");
   await expect(page.locator(".response .cm-content")).toHaveCount(0);
   await expect(
@@ -1105,7 +1112,7 @@ test("panel sizes and Console visibility recover safely after reload", async ({
   });
   await split.press("ArrowDown");
   const savedEditor = await split.getAttribute("aria-valuenow");
-  await page.getByRole("button", { name: "⌘ Console", exact: false }).click();
+  await page.getByRole("button", { name: "Console", exact: false }).click();
   const consoleSplit = page.getByRole("separator", { name: "Resize console" });
   await consoleSplit.press("ArrowUp");
   const savedConsole = await consoleSplit.getAttribute("aria-valuenow");
@@ -1148,7 +1155,7 @@ for (const theme of ["light", "dark"]) {
         .click();
       await page
         .getByRole("button", {
-          name: chinese ? "⌘ 控制台" : "⌘ Console",
+          name: chinese ? "控制台" : "Console",
           exact: false,
         })
         .click();
@@ -1241,7 +1248,7 @@ test.describe("high DPI visual acceptance", () => {
     await page.getByRole("button", { name: "Params", exact: true }).click();
     await page.getByRole("button", { name: "Send ↗", exact: true }).click();
     await openMore(page);
-    await page.getByRole("button", { name: "⌘ Console", exact: false }).click();
+    await page.getByRole("button", { name: "Console", exact: false }).click();
     await page
       .getByRole("separator", { name: "Resize console", exact: true })
       .press("ArrowUp");
@@ -1329,7 +1336,12 @@ test("temporary requests send without entering a collection and save only to an 
   await expect(page.locator(".request-location")).toHaveText(
     "Temporary request",
   );
-  await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: process.platform === "darwin" ? "Save ⌘S" : "Save Ctrl+S",
+      exact: true,
+    })
+    .click();
   await expect(page.getByLabel("Save location")).toHaveValue("");
   await expect(
     page.getByRole("button", { name: "Save request", exact: true }),
@@ -1378,7 +1390,12 @@ test("adding within a folder fixes the destination at creation even after resour
     .getByRole("button", { name: "Edit collection Other API", exact: true })
     .click();
   await page.getByRole("button", { name: "Close ×", exact: true }).click();
-  await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: process.platform === "darwin" ? "Save ⌘S" : "Save Ctrl+S",
+      exact: true,
+    })
+    .click();
   await expect
     .poll(
       () =>
@@ -1421,7 +1438,7 @@ test("request identity, new request, search and Console belong to their visible 
   await page.locator("aside .search").fill("");
   await page
     .locator(".workspace-status")
-    .getByRole("button", { name: "⌘ Console", exact: true })
+    .getByRole("button", { name: "Console", exact: true })
     .click();
   await expect(page.locator(".console")).toBeVisible();
 });
@@ -1455,7 +1472,7 @@ for (const theme of ["light", "dark"]) {
     await showSidebar(page);
     await page.getByRole("button", { name: "Send ↗", exact: true }).click();
     await openMore(page);
-    await page.getByRole("button", { name: "⌘ Console", exact: false }).click();
+    await page.getByRole("button", { name: "Console", exact: false }).click();
     const console = page.locator(".console");
     await expect(console.locator(".console-toolbar button")).toHaveCount(2);
     await expect(
@@ -1606,7 +1623,11 @@ test("search disclosure state matches visible children and preserves the saved b
   await openWorkspace(page, { configure: nestUsers });
   await showSidebar(page);
   await page.getByRole("button", { name: "Collapse API", exact: true }).click();
-  const search = page.getByPlaceholder("Search name or URL  ⌘K");
+  const search = page.getByPlaceholder(
+    process.platform === "darwin"
+      ? "Search name or URL  ⌘K"
+      : "Search name or URL  Ctrl+K",
+  );
   await search.fill("users");
   await expect(
     page.getByRole("button", { name: "Collapse API", exact: true }),
@@ -1728,7 +1749,11 @@ test("text toggling in search preserves the normal collection layout", async ({
   await showSidebar(page);
   const collection = page.getByRole("button", { name: "API", exact: true });
   await collection.click();
-  const search = page.getByPlaceholder("Search name or URL  ⌘K");
+  const search = page.getByPlaceholder(
+    process.platform === "darwin"
+      ? "Search name or URL  ⌘K"
+      : "Search name or URL  Ctrl+K",
+  );
   await search.fill("Users");
   await expect(collection).toHaveAttribute("aria-expanded", "true");
   const folder = page.getByRole("button", {
@@ -1749,4 +1774,168 @@ test("text toggling in search preserves the normal collection layout", async ({
   await search.clear();
   await expect(collection).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".panel")).toHaveCount(0);
+});
+
+test("parameter tables offer a virtual blank row and preserve bulk-pasted data without storing the placeholder", async ({
+  page,
+}) => {
+  const backend = await openWorkspace(page);
+  await page.getByRole("button", { name: "Params", exact: true }).click();
+  await expect(page.getByLabel("Key 2", { exact: true })).toBeVisible();
+  await page.getByLabel("Key 2", { exact: true }).fill("limit");
+  await page.getByLabel("Value 2", { exact: true }).fill("20");
+  await expect(page.getByLabel("Key 3", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Request URL")).toHaveValue(
+    "https://example.test/users?page=1&limit=20",
+  );
+  await expect
+    .poll(() => backend.read().items[0].request!.params.length)
+    .toBe(2);
+  await page.getByLabel("Key 3", { exact: true }).evaluate((element) => {
+    const clipboard = new DataTransfer();
+    clipboard.setData(
+      "text/plain",
+      "tag=one\ntag=two\nempty=\ntoken={{token}}",
+    );
+    element.dispatchEvent(
+      new ClipboardEvent("paste", {
+        clipboardData: clipboard,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await expect(page.getByLabel("Key 7", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Request URL")).toHaveValue(
+    "https://example.test/users?page=1&limit=20&tag=one&tag=two&empty=&token={{token}}",
+  );
+  await expect
+    .poll(() => backend.read().items[0].request!.params.length)
+    .toBe(6);
+  expect(
+    backend
+      .read()
+      .items[0].request!.params.filter((row) => row.key === "tag")
+      .map((row) => row.value),
+  ).toEqual(["one", "two"]);
+});
+
+test("bulk header paste inserts rows without overwriting following headers or changing disabled flags", async ({
+  page,
+}) => {
+  const backend = await openWorkspace(page, {
+    configure: (workspace) => {
+      workspace.items[0].request!.headers = [
+        { key: "Old", value: "old", description: "Keep note", enabled: false },
+        { key: "Existing", value: "keep", description: "", enabled: true },
+      ];
+    },
+  });
+  await page.getByRole("button", { name: "Headers", exact: true }).click();
+  await page.getByLabel("Key 1", { exact: true }).evaluate((element) => {
+    const clipboard = new DataTransfer();
+    clipboard.setData(
+      "text/plain",
+      "X-Time: 12:30\r\nX-Empty:\r\nX-Tag: a\r\nX-Tag: b",
+    );
+    element.dispatchEvent(
+      new ClipboardEvent("paste", {
+        clipboardData: clipboard,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await expect(page.getByLabel("Key 5", { exact: true })).toHaveValue(
+    "Existing",
+  );
+  await expect(page.getByLabel("Value 5", { exact: true })).toHaveValue("keep");
+  await expect(
+    page.getByLabel("Enable row 1", { exact: true }),
+  ).not.toBeChecked();
+  await expect
+    .poll(() => backend.read().items[0].request!.headers.length)
+    .toBe(5);
+  expect(backend.read().items[0].request!.headers[0]).toMatchObject({
+    key: "X-Time",
+    value: "12:30",
+    description: "Keep note",
+    enabled: false,
+  });
+});
+
+test("copy feedback clears automatically, restarts on repeated copy and never shows a success toast on failure", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          if ((window as any).__failCopy) throw new Error("Clipboard denied");
+          (window as any).__clipboardText = text;
+        },
+      },
+    });
+  });
+  await openWorkspace(page);
+  await page.clock.install();
+  await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  const copy = page.getByRole("button", { name: "Copy response", exact: true });
+  await copy.click();
+  await expect(page.locator(".response-tools .copy-feedback")).toHaveText(
+    "Copied",
+  );
+  await expect(page.locator(".toast")).toHaveCount(0);
+  await page.clock.fastForward(1000);
+  await copy.click();
+  await page.clock.fastForward(1000);
+  await expect(page.locator(".response-tools .copy-feedback")).toHaveText(
+    "Copied",
+  );
+  await page.clock.fastForward(700);
+  await expect(page.locator(".response-tools .copy-feedback")).toHaveCount(0);
+  await openMore(page);
+  await page.getByRole("button", { name: "Copy cURL", exact: true }).click();
+  await expect(page.locator(".request-tools .copy-feedback")).toHaveText(
+    "cURL copied.",
+  );
+  await page.clock.fastForward(1700);
+  await expect(page.locator(".request-tools .copy-feedback")).toHaveCount(0);
+  await page.evaluate(() => {
+    (window as any).__failCopy = true;
+  });
+  await copy.click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Unable to copy to the clipboard.",
+  );
+  await expect(page.locator(".response-tools .copy-feedback")).toHaveCount(0);
+});
+
+test("Windows and Linux use Ctrl shortcut hints in both languages", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    Object.defineProperty(navigator, "platform", {
+      value: "Win32",
+      configurable: true,
+    }),
+  );
+  await openWorkspace(page, { openSavedRequest: false });
+  await expect(
+    page.getByRole("button", { name: "Save Ctrl+S", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByPlaceholder("Search name or URL  Ctrl+K"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Console", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "⚙ Settings", exact: true }).click();
+  await page.getByLabel("Language", { exact: true }).selectOption("zh-CN");
+  await page.getByRole("button", { name: "关闭 ×", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "保存 Ctrl+S", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByPlaceholder("搜索名称或 URL  Ctrl+K")).toBeVisible();
 });

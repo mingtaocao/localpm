@@ -46,6 +46,7 @@ export type Environment = {
   metadata: any;
 };
 export type Workspace = {
+  variableRevision?: number;
   collections: Collection[];
   items: Item[];
   environments: Environment[];
@@ -70,7 +71,19 @@ export type HistoryEntry = {
   snapshot: RequestSpec;
   response: HistoryResponse;
 };
+export type ScriptPhaseResult = {
+  phase?: string;
+  status: "passed" | "failed" | "skipped";
+  error?: string | null;
+  logs?: { level: string; message: string }[];
+  tests?: { name: string; passed: boolean; error?: string }[];
+};
+export type ScriptReport = {
+  prerequest?: ScriptPhaseResult;
+  postresponse?: ScriptPhaseResult;
+};
 export type ResponseResult = {
+  scripts?: ScriptReport | null;
   status: number;
   statusText: string;
   headers: [string, string][];

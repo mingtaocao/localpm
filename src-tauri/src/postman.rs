@@ -224,6 +224,7 @@ pub fn export(ws: &Workspace, cid: &str) -> Result<Value> {
                     } else {
                         json!({})
                     };
+                    v.as_object_mut().unwrap().remove("localpmScriptsEnabled");
                     v["name"] = json!(i.name);
                     if i.kind == "folder" {
                         if i.auth["type"] == "inherit" {
@@ -238,6 +239,10 @@ pub fn export(ws: &Workspace, cid: &str) -> Result<Value> {
                         } else {
                             json!({})
                         };
+                        if let Some(event) = rq.as_object_mut().unwrap().remove("event") {
+                            v["event"] = event;
+                        }
+                        rq.as_object_mut().unwrap().remove("localpmScriptsEnabled");
                         rq["method"] = json!(r.method);
                         if rq["url"].is_object() {
                             rq["url"]["raw"] = json!(r.url);
@@ -267,6 +272,10 @@ pub fn export(ws: &Workspace, cid: &str) -> Result<Value> {
                 .collect(),
         )
     }
+    result
+        .as_object_mut()
+        .unwrap()
+        .remove("localpmScriptsEnabled");
     result["item"] = children(ws, cid, None);
     Ok(result)
 }

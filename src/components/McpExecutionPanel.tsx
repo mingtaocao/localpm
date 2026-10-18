@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ExecutionRecord } from "../types";
+import { ScriptResults } from "./ScriptResults";
 import { Icon } from "./Icon";
 
 function prettyBody(body: string) {
@@ -76,6 +77,7 @@ export function McpExecutionPanel({
         <summary>{tr("Request details")}</summary>
         <pre>{JSON.stringify(requestSnapshot, null, 2)}</pre>
       </details>
+      <ScriptResults report={response?.scripts} />
       <div className="response-heading execution-response-heading">
         <div className="metrics">
           {response ? (

@@ -15,7 +15,7 @@
 - Cookie jar、TLS 校验警告、自定义 CA、重定向、超时与取消、复用连接池。
 - Collection/Folder/Request 创建、重命名、复制、删除、拖放、树虚拟列表和搜索。
 - 多标签、500ms Draft、已有请求 2s 自动保存、History、每日 SQLite 备份（最近 7 份）。
-- Postman Collection v2.1 / Environment 导入导出；保留未知字段、禁用行和 Scripts；V1 不执行 Scripts。
+- Postman Collection v2.1 / Environment 导入导出；保留未知字段、禁用行和 Scripts；支持沙箱请求前/响应后脚本、响应取值与变量串联，详见[脚本用法](docs/scripts.md)。
 - 响应 Pretty/Raw/沙箱 HTML Preview、Headers/Cookies、复制/筛选和 Save as；超过 20MB 的响应只保存文件，不向 UI 传递全文。
 - 本地 MCP 服务：按集合与环境授权 AI 读取、预览、发送已保存请求；后台执行、取消和独立结果历史。
 

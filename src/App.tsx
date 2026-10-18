@@ -1,3 +1,6 @@
+import { useCopyFeedback } from "./hooks/useCopyFeedback";
+import { platformShortcut } from "./utils/shortcuts";
+import { useEditorPreferences } from "./stores/editorPreferences";
 import { version as appVersion } from "../package.json";
 import { usePreferences } from "./stores/preferences";
 import { formatError } from "./i18n/errors";
@@ -42,6 +45,8 @@ import {
 } from "./components/ConsolePanel";
 import { requestToCurl } from "./utils/curl";
 import { Icon } from "./components/Icon";
+import { ScriptsEditor } from "./components/ScriptsEditor";
+import { ScriptResults, scriptErrorReport } from "./components/ScriptResults";
 import { MethodSelect } from "./components/MethodSelect";
 import { MoreMenu } from "./components/MoreMenu";
 import { readLayout, saveLayout, layoutNumber } from "./stores/layout";
@@ -59,6 +64,8 @@ function clampSidebarWidth(width: number) {
 export default function App() {
   const { t: tr } = useTranslation();
   const { theme, language, resolvedTheme } = usePreferences();
+  const { fontSize, setFontSize } = useEditorPreferences();
+  const { copied, copy } = useCopyFeedback();
   const {
     workspace: w,
     set: setWorkspace,
@@ -191,6 +198,7 @@ export default function App() {
           statusText: result?.statusText,
           duration: result?.duration,
           size: result?.size,
+          scripts: result?.scripts,
           responseHeaders: result?.headers,
           responseBody: result?.body.slice(0, 64 * 1024),
           responseTruncated: result
@@ -270,6 +278,22 @@ export default function App() {
       unlisten?.();
     };
   }, []);
+  useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listen("variables-updated", () => {
+      void useWorkspace.getState().refreshVariables().catch(setError);
+    })
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else stop = unlisten;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, []);
   const searchRef = useRef<HTMLInputElement>(null);
   const tab = tabs.find((t) => t.request.id === active);
   const tabView = { ...defaultRequestView, ...tab?.view };
@@ -286,9 +310,15 @@ export default function App() {
     [tab?.response, responseTab],
   );
   const r = tab?.request;
-  // Raw bodies need room for mode controls, editor tools and readable document lines.
+  // Document editors need room for their controls and readable document lines.
   const minEditorHeight = Math.min(
-    editor === "Body" && r?.body.mode === "raw" ? 380 : consoleOpen ? 240 : 180,
+    editor === "Scripts"
+      ? 500
+      : editor === "Body" && r?.body.mode === "raw"
+        ? 380
+        : consoleOpen
+          ? 240
+          : 180,
     maxEditorHeight,
   );
   const editorHeight = Math.max(
@@ -651,6 +681,8 @@ export default function App() {
         throw { code: "REQUEST_CANCELLED", message: "Request cancelled" };
       execution.started = true;
       const result = await api.send(request, id, context);
+      if (result.scripts)
+        await useWorkspace.getState().refreshVariables().catch(setError);
       updateExecution({
         response: result,
         responseIsPrevious: false,
@@ -670,6 +702,7 @@ export default function App() {
                 statusText: result.statusText,
                 duration: result.duration,
                 size: result.size,
+                scripts: result.scripts,
                 responseHeaders: result.headers,
                 responseBody: result.body.slice(0, 64 * 1024),
                 responseTruncated:
@@ -690,6 +723,7 @@ export default function App() {
                 ...entry,
                 phase: "error",
                 duration: Math.round(performance.now() - started),
+                scripts: scriptErrorReport(e),
                 error: formatError(e),
                 errorDetail:
                   e && typeof e === "object" && "message" in e
@@ -1085,7 +1119,9 @@ export default function App() {
             hidden={section !== "Collections"}
             className="search"
             ref={searchRef}
-            placeholder={tr("Search name or URL  ⌘K")}
+            placeholder={tr("Search name or URL  %{shortcut}", {
+              shortcut: platformShortcut("K"),
+            })}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -1431,12 +1467,24 @@ export default function App() {
                           <option value="zh-CN">{tr("简体中文")}</option>
                         </select>
                       </label>
+                      <label>
+                        {tr("Editor font size")}
+                        <select
+                          aria-label={tr("Editor font size")}
+                          value={fontSize}
+                          onChange={(event) =>
+                            setFontSize(Number(event.target.value))
+                          }
+                        >
+                          {[12, 13, 14, 15, 16, 18, 20].map((size) => (
+                            <option key={size} value={size}>
+                              {size}px
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     </div>
-                    <McpSettings
-                      workspace={w}
-                      onError={fail}
-                      onNotice={setNotice}
-                    />
+                    <McpSettings workspace={w} onError={fail} />
                     <button
                       onClick={() =>
                         void api
@@ -1489,6 +1537,15 @@ export default function App() {
                       value={collection.auth}
                       onChange={(auth) => patchCollection({ auth })}
                     />
+                    <h3>{tr("Scripts")}</h3>
+                    <ScriptsEditor
+                      enableToggle={false}
+                      metadata={collection.metadata}
+                      onChange={(metadata) => patchCollection({ metadata })}
+                      sessions={editorSessions}
+                      stateKey={`collection:${collection.id}`}
+                      theme={resolvedTheme}
+                    />
                     <h3>{tr("Collection variables")}</h3>
                     <KeyValue
                       secrets
@@ -1525,6 +1582,14 @@ export default function App() {
                     <Auth
                       value={selectedItem.auth}
                       onChange={(auth) => patchFolder({ auth })}
+                    />
+                    <ScriptsEditor
+                      enableToggle={false}
+                      metadata={selectedItem.metadata}
+                      onChange={(metadata) => patchFolder({ metadata })}
+                      sessions={editorSessions}
+                      stateKey={`folder:${selectedItem.id}`}
+                      theme={resolvedTheme}
                     />
                     <button
                       onClick={() =>
@@ -1692,7 +1757,9 @@ export default function App() {
                         : tr("Temporary request")}
                     </span>
                     <button onClick={() => void save().catch(fail)}>
-                      {tr("Save ⌘S")}
+                      {tr("Save %{shortcut}", {
+                        shortcut: platformShortcut("S"),
+                      })}
                     </button>
                   </div>
                   <div className="url-bar">
@@ -1842,13 +1909,17 @@ export default function App() {
                       >
                         <Icon name={editor ? "chevron-up" : "chevron-down"} />
                       </button>
+                      {copied === `${r.id}:curl` && (
+                        <span className="copy-feedback" role="status">
+                          {tr("cURL copied.")}
+                        </span>
+                      )}
                       <MoreMenu label={tr("More actions")}>
                         <button
                           onClick={() =>
-                            void navigator.clipboard
-                              .writeText(requestToCurl(r))
-                              .then(() => setNotice("cURL copied."))
-                              .catch(fail)
+                            void copy(requestToCurl(r), `${r.id}:curl`).catch(
+                              fail,
+                            )
                           }
                         >
                           {tr("Copy cURL")}
@@ -1916,6 +1987,7 @@ export default function App() {
                     )}
                     {editor === "Params" && (
                       <KeyValue
+                        pasteMode="params"
                         rows={r.params}
                         onChange={(params) =>
                           edit({ params, url: urlFromParams(r.url, params) })
@@ -1925,6 +1997,7 @@ export default function App() {
                     {editor === "Headers" && (
                       <>
                         <KeyValue
+                          pasteMode="headers"
                           rows={r.headers}
                           onChange={(headers) => edit({ headers })}
                         />
@@ -1948,22 +2021,15 @@ export default function App() {
                       />
                     )}
                     {editor === "Scripts" && (
-                      <>
-                        <p className="warning">
-                          {tr(
-                            "Scripts are preserved for export. V1 does not execute scripts.",
-                          )}
-                        </p>
-                        <pre>
-                          {JSON.stringify(
-                            requestItem?.metadata?.event ??
-                              r.metadata?.event ??
-                              [],
-                            null,
-                            2,
-                          )}
-                        </pre>
-                      </>
+                      <ScriptsEditor
+                        metadata={r.metadata}
+                        fallback={requestItem?.metadata}
+                        onChange={(metadata) => edit({ metadata })}
+                        sessions={editorSessions}
+                        stateKey={r.id}
+                        theme={resolvedTheme}
+                        inherited
+                      />
                     )}
                     {editor === "Body" && (
                       <>
@@ -2341,25 +2407,32 @@ export default function App() {
                             aria-label={tr("Copy response")}
                             title={tr("Copy response")}
                             onClick={() =>
-                              void navigator.clipboard
-                                .writeText(
-                                  ["Headers", "Cookies"].includes(responseTab)
-                                    ? tab
-                                        .response!.headers.filter(
-                                          ([key]) =>
-                                            responseTab !== "Cookies" ||
-                                            key.toLowerCase() === "set-cookie",
-                                        )
-                                        .map((header) => header.join(": "))
-                                        .join("\n")
-                                    : responseBody,
-                                )
-                                .then(() => setNotice("Response copied."))
-                                .catch(fail)
+                              void copy(
+                                ["Headers", "Cookies"].includes(responseTab)
+                                  ? tab
+                                      .response!.headers.filter(
+                                        ([key]) =>
+                                          responseTab !== "Cookies" ||
+                                          key.toLowerCase() === "set-cookie",
+                                      )
+                                      .map((header) => header.join(": "))
+                                      .join("\n")
+                                  : responseBody,
+                                `${r.id}:response`,
+                              ).catch(fail)
                             }
                           >
-                            <Icon name="copy" />
+                            <Icon
+                              name={
+                                copied === `${r.id}:response` ? "check" : "copy"
+                              }
+                            />
                           </button>
+                          {copied === `${r.id}:response` && (
+                            <span className="copy-feedback" role="status">
+                              {tr("Copied")}
+                            </span>
+                          )}
                           <MoreMenu label={tr("Response actions")}>
                             <button onClick={() => setResponseTab("Cookies")}>
                               {tr("Cookies")}
@@ -2419,6 +2492,11 @@ export default function App() {
                         </button>
                       </div>
                     ))}
+                  <ScriptResults
+                    report={
+                      scriptErrorReport(tab?.error) ?? tab?.response?.scripts
+                    }
+                  />
                   {invalidJson && (
                     <p className="response-context" role="status">
                       {tr("Invalid JSON; showing the original response.")}
@@ -2448,12 +2526,14 @@ export default function App() {
                                 <span>{v}</span>
                                 <button
                                   onClick={() =>
-                                    void navigator.clipboard
-                                      .writeText(v)
-                                      .catch(fail)
+                                    void copy(v, `${r.id}:header:${i}`).catch(
+                                      fail,
+                                    )
                                   }
                                 >
-                                  {tr("Copy")}
+                                  {copied === `${r.id}:header:${i}`
+                                    ? tr("Copied")
+                                    : tr("Copy")}
                                 </button>
                               </div>
                             ))}
@@ -2514,7 +2594,7 @@ export default function App() {
               aria-expanded={consoleOpen}
               onClick={() => setConsoleOpen(!consoleOpen)}
             >
-              {tr("⌘ Console")}
+              {tr("Console")}
               {consoleProblems > 0 && (
                 <span className="console-problem-count">{consoleProblems}</span>
               )}

@@ -2,6 +2,7 @@ pub mod domain;
 pub mod http;
 pub mod mcp;
 pub mod postman;
+pub mod scripts;
 pub mod security;
 pub mod service;
 pub mod storage;
@@ -50,8 +51,10 @@ async fn send_request(
         None => state.service.storage.load()?,
     };
     let context = service::ExecutionContext::from_workspace(&workspace, &request, "manual");
-    let prepared = http::prepare(&workspace, &request)?;
-    state.service.execute(prepared, execution_id, context).await
+    state
+        .service
+        .send(workspace, request, execution_id, context)
+        .await
 }
 #[tauri::command]
 fn cancel_request(state: tauri::State<AppState>, execution_id: String) {
@@ -91,10 +94,7 @@ fn import_file(state: tauri::State<AppState>, path: String) -> Result<Workspace>
         .map_err(|_| AppError::new("IMPORT_INVALID_FORMAT", "Cannot read JSON file"))?;
     let value = serde_json::from_str(&text)
         .map_err(|_| AppError::new("IMPORT_INVALID_FORMAT", "Invalid JSON"))?;
-    let mut ws = state.service.storage.load()?;
-    postman::import(value, &mut ws)?;
-    state.service.storage.save(&ws)?;
-    Ok(ws)
+    state.service.import(value)
 }
 #[tauri::command]
 fn export_file(

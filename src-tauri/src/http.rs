@@ -13,6 +13,7 @@ use tokio::io::AsyncWriteExt;
 use tokio_util::{io::ReaderStream, sync::CancellationToken};
 #[derive(Clone)]
 pub struct PreparedRequest {
+    pub scripts: Option<crate::scripts::Execution>,
     pub request: RequestSpec,
     pub url: String,
     pub headers: Vec<(String, String)>,
@@ -207,6 +208,7 @@ pub fn prepare(ws: &Workspace, r: &RequestSpec) -> Result<PreparedRequest> {
         }
     }
     Ok(PreparedRequest {
+        scripts: None,
         request: r.clone(),
         url: u.to_string(),
         headers,
@@ -589,6 +591,7 @@ impl HttpEngine {
             String::from_utf8_lossy(&preview).into_owned()
         };
         Ok(Response {
+            scripts: None,
             status: status.as_u16(),
             status_text: status.canonical_reason().unwrap_or_default().into(),
             headers,
