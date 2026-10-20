@@ -14,7 +14,7 @@
 - Off / System / Manual HTTP(S) Proxy、认证、通配 No Proxy、请求/环境/全局覆盖。
 - Cookie jar、TLS 校验警告、自定义 CA、重定向、超时与取消、复用连接池。
 - Collection/Folder/Request 创建、重命名、复制、删除、拖放、树虚拟列表和搜索。
-- 多标签、500ms Draft、已有请求 2s 自动保存、History、每日 SQLite 备份（最近 7 份）。
+- 多标签、500ms 自动保留草稿；发送使用当前草稿，只有显式 Save 才更新集合；History、每日 SQLite 备份（最近 7 份）。
 - Postman Collection v2.1 / Environment 导入导出；保留未知字段与禁用行。支持请求前/响应后脚本、响应提取并写入变量、下一请求引用、测试结果与日志；导入脚本需主动启用，详见 [脚本与两请求传参](docs/scripts.md)。
 - 响应 Pretty/Raw/沙箱 HTML Preview、Headers/Cookies、复制/筛选和 Save as；超过 20MB 的响应只保存文件，不向 UI 传递全文。
 - 本地 MCP 服务：按集合与环境授权 AI 读取、预览、发送已保存请求；后台执行、取消和独立结果历史。

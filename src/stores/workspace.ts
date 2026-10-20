@@ -9,6 +9,7 @@ export const useWorkspace = create<{
   set: (w: Workspace) => void;
   applyScriptUpdates: (updates: VariableUpdate[]) => void;
   persist: (w: Workspace) => Promise<void>;
+  flush: () => Promise<void>;
 }>((set) => ({
   workspace: null,
   error: "",
@@ -19,6 +20,7 @@ export const useWorkspace = create<{
         ? { workspace: mergeVariableUpdates(current.workspace, updates) }
         : {},
     ),
+  flush: () => queue,
   persist: async (workspace) => {
     set({ workspace });
     const work = queue.then(async () => {

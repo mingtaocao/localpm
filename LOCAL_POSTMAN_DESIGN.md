@@ -25,7 +25,7 @@
    ↓
 查看 Response
    ↓
-请求自动保存到本地
+编辑自动保留本地草稿，正式请求仅显式保存
 ```
 
 第一阶段只聚焦 HTTP/HTTPS。
@@ -1312,7 +1312,7 @@ Command 只作为边界。
 
 建议：
 - 500ms 保存 Draft
-- 2s idle 保存正式 Request
+- Save 显式保存正式 Request；Send 只执行当前草稿，不覆盖正式 Request
 
 ---
 
