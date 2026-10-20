@@ -1,7 +1,7 @@
 //! Local MCP transport. All request execution goes through the desktop service.
 use crate::{
     domain::*,
-    http::{self, PreparedRequest},
+    http::PreparedRequest,
     security,
     service::{ExecutionContext, RequestService},
 };
@@ -439,7 +439,17 @@ impl McpController {
         let mut request = original.clone();
         let environment_name = self.scoped_environment(&mut ws, args, config)?;
         apply_overrides(&mut request, args.get("overrides"))?;
-        let mut prepared = http::prepare(&ws, &request)?;
+        let mut prepared = crate::scripts::prepare(&ws, &request, &CancellationToken::new())?;
+        if prepared.scripts.as_ref().is_some_and(|plan| {
+            crate::scripts::changes(plan, &request)
+                .iter()
+                .any(|update| update["scope"] == "global")
+        }) {
+            return Err(error(
+                "SCRIPT_SCOPE_DENIED",
+                "MCP scripts cannot modify workspace global variables",
+            ));
+        }
         for (key, value) in &mut prepared.vars {
             if sensitive_key(key) || security::sensitive_header(key) {
                 value.secret = true;

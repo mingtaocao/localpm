@@ -132,11 +132,11 @@ test("theme and language persist through Rust/SQLite restart without translating
   );
   await expect(page.locator(".request-editor .cm-editor")).toHaveCSS(
     "background-color",
-    "rgb(34, 38, 45)",
+    "rgb(30, 31, 34)",
   );
   await expect(page.locator(".response .cm-editor")).toHaveCSS(
     "background-color",
-    "rgb(34, 38, 45)",
+    "rgb(30, 31, 34)",
   );
   await page.locator(".request-editor .cm-content").click();
   await page

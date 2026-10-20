@@ -2581,3 +2581,81 @@ button.primary {
     display: none;
   }
 }
+
+.script-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 240px;
+}
+.script-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 8px 0;
+}
+.script-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.script-toolbar input {
+  width: auto;
+}
+.script-toolbar [role="group"] {
+  display: flex;
+  gap: 4px;
+}
+.script-editor .code-editor {
+  flex: 1;
+  min-height: 160px;
+}
+.script-help {
+  margin: 4px 0 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.script-results {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  max-height: 180px;
+  overflow: auto;
+  flex-shrink: 0;
+}
+.script-results p {
+  margin: 4px 0;
+}
+.script-results pre {
+  white-space: pre-wrap;
+}
+
+.script-toolbar,
+.script-help,
+.script-inheritance {
+  flex-shrink: 0;
+}
+.script-inheritance {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.script-inheritance input {
+  width: auto;
+}
+
+.script-results > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.script-results[open] > summary {
+  margin-bottom: 6px;
+}
+.script-toolbar button[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--selected);
+  border-color: var(--accent);
+}

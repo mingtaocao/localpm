@@ -41,7 +41,11 @@ Pending: explicit collection Save vs automatic draft saving; stable key-value ro
 
 ## Phase C — scripts
 
-Pending: cross-platform isolated runtime verification, script model/import migration, execution orchestration, supported pm API list, snippet editor, test results and script logs. Current imported scripts remain preserved and unexecuted.
+Implemented the core two-request workflow: editable pre-request/post-response scripts, bounded native QuickJS VM, core variable/response/request APIs, synchronous tests and logs, per-key conflict-checked variable persistence, frontend variable updates before the next send, and edited Postman event export. Imported scripts require explicit opt-in. Manual sends and MCP use the same runtime; MCP preview is read-only and global writes are denied. See [scripts.md](scripts.md) for the exact API subset and lifecycle.
+
+Validation includes real HTTP/SQLite extraction and reuse, restart, scope switching, stale full saves, write conflicts, exceptions, timeout, import/export and MCP preview/run. Browser tests cover English/light and Chinese/dark with real Rust execution.
+
+Pending: packaged Windows/macOS runtime and cancellation acceptance, expanded snippets/assertions, per-script source navigation, and the remaining full Phase C design. No full Postman Sandbox or Runner compatibility claim.
 
 ## Phase D — compatibility and native acceptance
 

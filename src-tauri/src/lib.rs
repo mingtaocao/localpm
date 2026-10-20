@@ -2,6 +2,7 @@ pub mod domain;
 pub mod http;
 pub mod mcp;
 pub mod postman;
+pub mod scripts;
 pub mod security;
 pub mod service;
 pub mod storage;
@@ -50,7 +51,20 @@ async fn send_request(
         None => state.service.storage.load()?,
     };
     let context = service::ExecutionContext::from_workspace(&workspace, &request, "manual");
-    let prepared = http::prepare(&workspace, &request)?;
+    state.service.reserve_execution(&execution_id)?;
+    let token = state.service.execution_token(&execution_id)?;
+    let prepared =
+        tokio::task::spawn_blocking(move || scripts::prepare(&workspace, &request, &token))
+            .await
+            .map_err(|e| AppError::new("SCRIPT_ERROR", e))
+            .and_then(|result| result);
+    let prepared = match prepared {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            state.service.forget_execution(&execution_id);
+            return Err(error);
+        }
+    };
     state.service.execute(prepared, execution_id, context).await
 }
 #[tauri::command]

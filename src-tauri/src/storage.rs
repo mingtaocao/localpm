@@ -101,6 +101,28 @@ impl Storage {
     }
     pub fn save(&self, ws: &Workspace) -> Result<()> {
         let mut db = self.db.lock().map_err(err)?;
+        Self::save_locked(&mut db, ws)
+    }
+    pub fn update_workspace(
+        &self,
+        update: impl FnOnce(&mut Workspace) -> Result<()>,
+    ) -> Result<Workspace> {
+        let mut db = self.db.lock().map_err(err)?;
+        let text = db.query_row(
+            "SELECT document FROM workspaces WHERE id='default'",
+            [],
+            |r| r.get::<_, String>(0),
+        );
+        let mut workspace = match text {
+            Ok(text) => serde_json::from_str(&text).map_err(err)?,
+            Err(rusqlite::Error::QueryReturnedNoRows) => Workspace::default(),
+            Err(error) => return Err(err(error)),
+        };
+        update(&mut workspace)?;
+        Self::save_locked(&mut db, &workspace)?;
+        Ok(workspace)
+    }
+    fn save_locked(db: &mut Connection, ws: &Workspace) -> Result<()> {
         let tx = db.transaction().map_err(err)?;
         tx.execute("INSERT INTO workspaces VALUES('default','My Workspace',?1) ON CONFLICT(id) DO UPDATE SET document=excluded.document",[serde_json::to_string(ws).map_err(err)?]).map_err(err)?;
         for table in [
