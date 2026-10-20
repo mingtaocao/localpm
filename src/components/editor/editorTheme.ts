@@ -54,9 +54,13 @@ export function editorTheme(dark: boolean) {
           backgroundColor: "var(--editor-active-line)",
         },
         ".cm-gutters": {
-          color: "var(--muted)",
-          backgroundColor: "var(--surface-raised)",
-          borderRight: "1px solid var(--border)",
+          color: "var(--editor-line-number)",
+          backgroundColor: "var(--editor-gutter)",
+          borderRight: "1px solid transparent",
+        },
+        ".cm-activeLineGutter": {
+          color: "var(--text)",
+          fontWeight: "600",
         },
         "&.cm-focused .cm-matchingBracket, .cm-matchingBracket": {
           backgroundColor: "var(--editor-bracket-bg)",

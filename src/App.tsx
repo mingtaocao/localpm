@@ -1241,10 +1241,11 @@ export default function App() {
               {tabs.map((t) => (
                 <div
                   key={t.request.id}
-                  className={active === t.request.id ? "tab active" : "tab"}
+                  className={`tab${active === t.request.id ? " active" : ""}${t.dirty ? " is-dirty" : ""}`}
                 >
                   <button
                     title={t.request.name}
+                    aria-current={active === t.request.id ? "page" : undefined}
                     aria-label={tr("Request tab: %{name}", {
                       name: t.request.name,
                     })}
@@ -1257,23 +1258,28 @@ export default function App() {
                       {t.request.method}
                     </span>{" "}
                     <span className="tab-name">{t.request.name}</span>
-                    {t.dirty && (
-                      <span
-                        className="tab-dirty-indicator"
-                        id={`request-unsaved-${t.request.id}`}
-                        title={tr("Unsaved changes")}
-                      >
-                        <span className="rare-sr-only">
-                          {tr("Unsaved changes")}
-                        </span>
-                      </span>
-                    )}
                   </button>
                   <button
+                    className="tab-close"
+                    aria-label={tr("Close tab (draft retained)")}
                     title={tr("Close tab (draft retained)")}
                     onClick={() => void closeTab(t.request.id).catch(fail)}
                   >
-                    ×
+                    <Icon name="close" />
+                    {t.dirty && (
+                      <>
+                        <span
+                          className="tab-dirty-indicator"
+                          aria-hidden="true"
+                        />
+                        <span
+                          className="rare-sr-only"
+                          id={`request-unsaved-${t.request.id}`}
+                        >
+                          {tr("Unsaved changes")}
+                        </span>
+                      </>
+                    )}
                   </button>
                 </div>
               ))}
