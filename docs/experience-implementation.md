@@ -37,7 +37,9 @@ Implemented incrementally:
 
 Validation for this lifecycle audit: browser regressions reproduce tab-switch draft loss, reopening stale collection content, stale writes after Save, environment switching during a delayed send, environment rollback during delayed autosave, editing/switching during slow close and draft-write failure/retry. Unit checks cover independent debounce, ordered writes/deletion, retry and cloned execution scopes. The current execution host has no Rust toolchain; native compilation, the real Rust bridge and packaged Windows/macOS execution still require platform CI/acceptance.
 
-Pending: explicit collection Save vs automatic draft saving; stable key-value row identity/paste; variable inspector; Console selection/maximization; shared viewer for MCP execution details. Existing collection autosave and save-before-send behavior remain in place.
+Collection requests now require explicit Save. Editing retains a separate local draft; Send flushes that draft and existing scope/settings writes, then executes the click-time snapshot without updating the saved request or clearing dirty state. The former two-second collection autosave is removed. Closing/reopening and restarting restore retained drafts; explicit Save updates the collection and removes the corresponding draft.
+
+Validation covers idle edits, Send without workspace writes, snapshot isolation, cancellation during draft persistence, draft recovery after reload and explicit Save. Pending: stable key-value row identity/paste; variable inspector; Console selection/maximization; shared viewer for MCP execution details.
 
 ## Phase C — scripts
 

@@ -39,7 +39,7 @@ The previous acceptance over-emphasized visibility and scripted functional execu
 - Application toolbar no longer contains a request creation button, request-name textbox or collection-only search button. Collection search stays in the resource panel, with the existing keyboard shortcut.
 - The workbench tab strip is always visible, including for a single request. Its New request action creates a temporary draft. Request name, location and Save are located in the request builder.
 - Each collection/folder has an Add request action. This immediately creates the request at the specified location; subsequent sidebar selection cannot redirect it.
-- Saving a temporary request opens an explicit collection/folder destination chooser. No automatic fallback to the first collection. Sending a temporary request no longer inserts it into a collection. Existing collection requests retain their existing autosave and inheritance behavior.
+- Saving a temporary request opens an explicit collection/folder destination chooser. No automatic fallback to the first collection. Sending a temporary request no longer inserts it into a collection. Collection edits retain local drafts; only explicit Save updates the saved request. Send uses the current draft and preserves authentication inheritance.
 - Selecting a request tab synchronizes the resource highlight and restores its configuration section. Configuration tabs select sections; collapsing is a separate control with an up/down chevron.
 - Console has a stable workspace status-bar entry rather than being hidden in request actions. Expansion reserves space for useful request editing, with extra limits at the existing minimum window size.
 

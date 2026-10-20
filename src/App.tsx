@@ -406,7 +406,7 @@ export default function App() {
     }
   }, [tabs, drafts]);
   const save = async (target?: SaveTarget) => {
-    // A delayed autosave must merge into the latest workspace, not its timer's closure.
+    // Explicit Save merges into the latest workspace without rolling back scope changes.
     const workspace = useWorkspace.getState().workspace;
     if (!r || !workspace) return;
     const items = [...workspace.items];
@@ -468,12 +468,6 @@ export default function App() {
       throw e;
     }
   };
-  useEffect(() => {
-    if (!tab?.dirty || !r || !w?.items.some((i) => i.request?.id === r.id))
-      return;
-    const timer = setTimeout(() => void save().catch(fail), 2000);
-    return () => clearTimeout(timer);
-  }, [r, tab?.dirty]);
   const activateRequest = (id: string) => {
     setActive(id);
     setSelected(w?.items.find((item) => item.request?.id === id)?.id ?? "");
@@ -675,8 +669,10 @@ export default function App() {
       responseIsPrevious: !!tab?.response,
     });
     try {
-      if (w.items.some((item) => item.request?.id === request.id)) await save();
-      else await persist(w);
+      // Send retains edits as a draft; only explicit Save changes a collection request.
+      if (tab?.dirty) await drafts.save(r);
+      // Await existing scope/settings writes without creating a new workspace save.
+      await useWorkspace.getState().flush();
       if (execution.cancelled)
         throw { code: "REQUEST_CANCELLED", message: "Request cancelled" };
       execution.started = true;
