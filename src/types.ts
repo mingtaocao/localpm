@@ -7,6 +7,7 @@ export type Pair = {
   kind?: string;
   isSecret?: boolean;
   secretRef?: string;
+  secretVersion?: string;
 };
 export type RequestSpec = {
   id: string;
@@ -70,6 +71,13 @@ export type HistoryEntry = {
   snapshot: RequestSpec;
   response: HistoryResponse;
 };
+export type ScriptReport = {
+  runs?: { scope: string; phase: string; passed: boolean; error?: string }[];
+  tests?: { name: string; passed: boolean; error?: string }[];
+  logs?: { level: string; message: string }[];
+  error?: { code: string; message: string };
+  variableUpdates?: import("./scripts/model").VariableUpdate[];
+};
 export type ResponseResult = {
   status: number;
   statusText: string;
@@ -83,6 +91,7 @@ export type ResponseResult = {
   file: string;
   truncated: boolean;
   binary: boolean;
+  scripts?: ScriptReport;
 };
 export type ExecutionRecord = {
   id: string;

@@ -25,6 +25,8 @@ pub struct Pair {
     pub description: String,
     pub kind: String,
     pub secret_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret_version: Option<String>,
     pub is_secret: bool,
 }
 impl Default for Pair {
@@ -36,6 +38,7 @@ impl Default for Pair {
             description: String::new(),
             kind: "text".into(),
             secret_ref: None,
+            secret_version: None,
             is_secret: false,
         }
     }
@@ -138,6 +141,8 @@ pub struct Response {
     pub file: String,
     pub truncated: bool,
     pub binary: bool,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub scripts: Value,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariableValue {

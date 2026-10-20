@@ -32,22 +32,28 @@ pub fn resolve(input: &str, vars: &Variables) -> Result<String> {
     }
     inner(input, vars, &mut vec![])
 }
+pub fn pair_value(pair: &Pair) -> Result<String> {
+    if !pair.value.is_empty() {
+        return Ok(pair.value.clone());
+    }
+    if let Some(reference) = &pair.secret_ref {
+        keyring::Entry::new("LocalPostman", reference)
+            .and_then(|entry| entry.get_password())
+            .map_err(|_| {
+                AppError::new(
+                    "SECRET_UNAVAILABLE",
+                    format!("Secret unavailable: {}", pair.key),
+                )
+            })
+    } else {
+        Ok(pair.value.clone())
+    }
+}
 pub fn context(ws: &Workspace, collection: Option<&str>) -> Result<Variables> {
     let mut vars = Variables::new();
     let mut add = |pairs: &[Pair], scope: &str| -> Result<()> {
         for p in pairs.iter().filter(|p| p.enabled) {
-            let value = if let Some(r) = &p.secret_ref {
-                keyring::Entry::new("LocalPostman", r)
-                    .and_then(|e| e.get_password())
-                    .map_err(|_| {
-                        AppError::new(
-                            "SECRET_UNAVAILABLE",
-                            format!("Secret unavailable: {}", p.key),
-                        )
-                    })?
-            } else {
-                p.value.clone()
-            };
+            let value = pair_value(p)?;
             vars.insert(
                 p.key.clone(),
                 VariableValue {

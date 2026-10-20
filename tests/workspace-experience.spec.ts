@@ -507,14 +507,20 @@ test("switching request tabs restores each request's collection variables and sc
   await expect(
     page.getByLabel("Request URL", { exact: true }),
   ).not.toHaveAttribute("title", /https:\/\/orders\.collection\.test/);
-  await openMore(page);
   await page.getByRole("button", { name: "Scripts", exact: true }).click();
-  await expect(page.locator(".editor-content pre")).toContainText(
-    "users-only-script",
-  );
-  await expect(page.locator(".editor-content pre")).not.toContainText(
-    "orders-only-script",
-  );
+  await page.getByRole("button", { name: "Pre-request", exact: true }).click();
+  await expect(
+    page.getByRole("textbox", {
+      name: "Pre-request script editor",
+      exact: true,
+    }),
+  ).toContainText("users-only-script");
+  await expect(
+    page.getByRole("textbox", {
+      name: "Pre-request script editor",
+      exact: true,
+    }),
+  ).not.toContainText("orders-only-script");
 
   await tabs
     .getByRole("button", { name: "Request tab: Orders", exact: true })
@@ -523,14 +529,20 @@ test("switching request tabs restores each request's collection variables and sc
     "title",
     /https:\/\/orders\.collection\.test/,
   );
-  await openMore(page);
   await page.getByRole("button", { name: "Scripts", exact: true }).click();
-  await expect(page.locator(".editor-content pre")).toContainText(
-    "orders-only-script",
-  );
-  await expect(page.locator(".editor-content pre")).not.toContainText(
-    "users-only-script",
-  );
+  await page.getByRole("button", { name: "Pre-request", exact: true }).click();
+  await expect(
+    page.getByRole("textbox", {
+      name: "Pre-request script editor",
+      exact: true,
+    }),
+  ).toContainText("orders-only-script");
+  await expect(
+    page.getByRole("textbox", {
+      name: "Pre-request script editor",
+      exact: true,
+    }),
+  ).not.toContainText("users-only-script");
 });
 
 test("more actions opens by keyboard and dismisses after Escape, outside interaction and actions", async ({
