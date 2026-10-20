@@ -2009,7 +2009,11 @@ export default function App() {
                             ),
                           }).catch(fail);
                         }}
-                        value={requestScripts(r, requestItem?.metadata)}
+                        value={requestScripts(
+                          r,
+                          requestItem?.metadata,
+                          readScripts(requestCollection?.metadata).enabled,
+                        )}
                         theme={resolvedTheme}
                         sessions={editorSessions}
                         onChange={(scripts) =>

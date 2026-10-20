@@ -72,9 +72,12 @@ describe("script variables", () => {
       postResponse:
         "const data = pm.response.json();\npm.environment.set('id',data.id);",
     });
+    expect(requestScripts(request, item, true).enabled).toBe(true);
     request.metadata = {
       localpmScripts: { enabled: true, preRequest: "", postResponse: "edited" },
     };
     expect(requestScripts(request, item).postResponse).toBe("edited");
+    request.metadata.localpmScripts.enabled = false;
+    expect(requestScripts(request, item, true).enabled).toBe(false);
   });
 });

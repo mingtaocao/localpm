@@ -37,14 +37,17 @@ export function readScripts(metadata: any): ScriptSet {
 export function requestScripts(
   request: RequestSpec,
   itemMetadata?: any,
+  inheritedEnabled = false,
 ): ScriptSet {
-  return readScripts(
+  const scripts = readScripts(
     request.metadata?.localpmScripts
       ? request.metadata
       : itemMetadata?.event
         ? itemMetadata
         : request.metadata,
   );
+  if (!request.metadata?.localpmScripts) scripts.enabled = inheritedEnabled;
+  return scripts;
 }
 const sameTarget = (a: any, b: any) =>
   a.scope === b.scope && a.id === b.id && a.key === b.key;
