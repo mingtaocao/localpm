@@ -13,13 +13,13 @@ use tokio::io::AsyncWriteExt;
 use tokio_util::{io::ReaderStream, sync::CancellationToken};
 #[derive(Clone)]
 pub struct PreparedRequest {
-    pub scripts: Option<crate::scripts::Execution>,
     pub request: RequestSpec,
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body: Value,
     pub settings: Value,
     pub vars: Variables,
+    pub scripts: Option<crate::scripts::ScriptPlan>,
 }
 pub struct HttpEngine {
     clients: Mutex<HashMap<String, Client>>,
@@ -91,12 +91,32 @@ fn field(a: &Value, kind: &str, key: &str) -> String {
         .into()
 }
 pub fn prepare(ws: &Workspace, r: &RequestSpec) -> Result<PreparedRequest> {
+    prepare_with_locals(ws, r, &json!({}))
+}
+pub fn prepare_with_locals(
+    ws: &Workspace,
+    r: &RequestSpec,
+    locals: &Value,
+) -> Result<PreparedRequest> {
     let cid = ws
         .items
         .iter()
         .find(|i| i.request.as_ref().is_some_and(|x| x.id == r.id))
         .map(|i| i.collection_id.as_str());
     let mut vars = variables::context(ws, cid)?;
+    if let Some(locals) = locals.as_object() {
+        for (key, value) in locals {
+            let secret = vars.get(key).is_some_and(|v| v.secret);
+            vars.insert(
+                key.clone(),
+                VariableValue {
+                    value: value.as_str().unwrap_or_default().into(),
+                    scope: "Local".into(),
+                    secret,
+                },
+            );
+        }
+    }
     let resolve = |s: &str| variables::resolve(s, &vars);
     let raw = resolve(&r.url)?;
     let mut u = url::Url::parse(&raw)
@@ -208,13 +228,13 @@ pub fn prepare(ws: &Workspace, r: &RequestSpec) -> Result<PreparedRequest> {
         }
     }
     Ok(PreparedRequest {
-        scripts: None,
         request: r.clone(),
         url: u.to_string(),
         headers,
         body,
         settings,
         vars,
+        scripts: None,
     })
 }
 pub fn bypass(host: &str, patterns: &str) -> bool {
@@ -591,7 +611,6 @@ impl HttpEngine {
             String::from_utf8_lossy(&preview).into_owned()
         };
         Ok(Response {
-            scripts: None,
             status: status.as_u16(),
             status_text: status.canonical_reason().unwrap_or_default().into(),
             headers,
@@ -604,6 +623,7 @@ impl HttpEngine {
             file: path.to_string_lossy().into_owned(),
             truncated: size > 20 * 1024 * 1024,
             binary,
+            scripts: Value::Null,
         })
     }
 }

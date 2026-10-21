@@ -1,286 +1,296 @@
-// The returned result function stays in Rust; scripts cannot access the journal.
-(function (inputText) {
-  const input = JSON.parse(inputText);
-  const stringify = JSON.stringify.bind(JSON);
-  const parse = JSON.parse.bind(JSON);
-  const changes = [],
-    logs = [],
-    tests = [];
+// Runs inside a fresh QuickJS VM. No browser, Node, network or native host bindings.
+function runLocalpmScript(input) {
+  "use strict";
+  const patches = [],
+    tests = [],
+    logs = [];
   const scopes = input.scopes;
-  let count = 0;
-  const own = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
-  const text = (value) =>
-    typeof value === "string" ? value : (stringify(value) ?? String(value));
-  const validKey = (key) => {
-    if (typeof key !== "string" || !key.trim() || key.length > 1024)
-      throw new Error(
-        "Variable name must be a nonempty string (max 1024 characters)",
-      );
-    return key;
+  const locals = Object.assign(Object.create(null), input.locals || {});
+  const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  const fail = (message) => {
+    throw new Error(message);
   };
-  const scope = (name) =>
-    Object.freeze({
-      get(key) {
-        return own(scopes[name], String(key))
-          ? scopes[name][String(key)]
-          : undefined;
-      },
-      has(key) {
-        return own(scopes[name], String(key));
-      },
-      toObject() {
-        return parse(stringify(scopes[name]));
-      },
+  const stringify = (value) => {
+    if (value === undefined || value === null)
+      return fail(
+        "Variable value is null or undefined; check the response field path",
+      );
+    const text =
+      typeof value === "object" ? JSON.stringify(value) : String(value);
+    if (text.length > 65536) fail("Variable value exceeds 64 KiB");
+    return text;
+  };
+  function scope(name, available) {
+    const values = Object.assign(Object.create(null), scopes[name]);
+    scopes[name] = values;
+    return {
+      get: (key) => (own(values, key) ? values[key] : undefined),
+      has: (key) => own(values, key),
       set(key, value) {
-        validKey(key);
-        if (name === "environment" && !input.environmentId)
-          throw new Error(
-            "Select an environment before writing environment variables",
+        if (!available)
+          fail(
+            "Select an environment or save this request in a collection before writing " +
+              name,
           );
-        if (name === "collection" && !input.collectionId)
-          throw new Error("This request does not belong to a collection");
-        const valueText = String(value);
-        if (valueText.length > 262144 || ++count > 1000)
-          throw new Error("Script variable write limit exceeded");
-        Object.defineProperty(scopes[name], key, {
-          value: valueText,
-          writable: true,
-          enumerable: true,
-          configurable: true,
-        });
-        if (name !== "local")
-          changes.push({ scope: name, key, value: valueText });
+        key = String(key);
+        if (!key || key.length > 256)
+          fail("Variable name must contain 1–256 characters");
+        if (patches.length >= 200) fail("Script variable write limit exceeded");
+        const text = stringify(value);
+        values[key] = text;
+        patches.push({ scope: name, key, value: text });
       },
       unset(key) {
-        validKey(key);
-        if (name === "environment" && !input.environmentId)
-          throw new Error(
-            "Select an environment before writing environment variables",
-          );
-        if (name === "collection" && !input.collectionId)
-          throw new Error("This request does not belong to a collection");
-        if (++count > 1000)
-          throw new Error("Script variable write limit exceeded");
-        delete scopes[name][key];
-        if (name !== "local") changes.push({ scope: name, key, value: null });
+        if (!available) fail("Variable scope is unavailable: " + name);
+        if (patches.length >= 200) fail("Script variable write limit exceeded");
+        key = String(key);
+        delete values[key];
+        patches.push({ scope: name, key, value: null });
       },
-    });
-  const globals = scope("global"),
-    environment = scope("environment"),
-    collection = scope("collection"),
-    local = scope("local");
-  const get = (key) => {
-    for (const name of ["local", "environment", "collection", "global"])
-      if (own(scopes[name], key)) return scopes[name][key];
-  };
-  const replaceIn = (str) => {
-    const resolve = (str, stack) =>
-      String(str).replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (match, key) => {
-        if (stack.includes(key) || stack.length >= 10)
-          throw new Error("Variable cycle or depth limit: " + key);
-        const value = get(key);
-        return value === undefined ? match : resolve(value, [...stack, key]);
-      });
-    return resolve(str, []);
-  };
-  const headers = (pairs) =>
-    Object.freeze({
-      get(name) {
-        const p = pairs.find(
-          (p) => p[0].toLowerCase() === String(name).toLowerCase(),
-        );
-        return p?.[1];
-      },
-      has(name) {
-        return this.get(name) !== undefined;
-      },
-      all() {
-        return pairs.map(([key, value]) => ({ key, value }));
-      },
-    });
-  const assert = (ok, message) => {
-    if (!ok) throw new Error(message || "Assertion failed");
-  };
-  const deepEqual = (a, b) => {
-    if (Object.is(a, b)) return true;
-    if (
-      !a ||
-      !b ||
-      typeof a !== "object" ||
-      typeof b !== "object" ||
-      Array.isArray(a) !== Array.isArray(b)
-    )
-      return false;
-    const keys = Object.keys(a);
-    return (
-      keys.length === Object.keys(b).length &&
-      keys.every((k) => own(b, k) && deepEqual(a[k], b[k]))
-    );
-  };
-  const expect = (value, message) => {
-    let deep = false;
-    const chain = {
-      equal(other) {
-        assert(
-          deep ? deepEqual(value, other) : value === other,
-          message || `Expected ${text(value)} to equal ${text(other)}`,
-        );
-        return chain;
-      },
-      eql(other) {
-        assert(
-          deepEqual(value, other),
-          message || "Values are not deeply equal",
-        );
-        return chain;
-      },
-      property(key) {
-        assert(
-          value != null && key in Object(value),
-          message || "Missing property: " + key,
-        );
-        return expect(value[key]);
-      },
-      a(type) {
-        assert(
-          (Array.isArray(value)
-            ? "array"
-            : value === null
-              ? "null"
-              : typeof value) === type,
-          message || "Unexpected type",
-        );
-        return chain;
-      },
-      include(other) {
-        assert(
-          value?.includes?.(other),
-          message || "Value does not include expected value",
-        );
-        return chain;
-      },
-      below(other) {
-        assert(
-          typeof value === "number" && value < other,
-          message || `Expected ${value} to be below ${other}`,
-        );
-        return chain;
-      },
+      toObject: () => Object.assign({}, values),
     };
-    chain.an = chain.a;
-    for (const k of ["to", "be", "have", "and"])
-      Object.defineProperty(chain, k, { get: () => chain });
-    Object.defineProperty(chain, "deep", {
-      get: () => {
-        deep = true;
-        return chain;
-      },
+  }
+  const environment = scope("environment", input.environmentId !== null);
+  const collectionVariables = scope("collection", input.collectionId !== null);
+  const globals = scope("global", true);
+  const all = () =>
+    Object.assign(
+      Object.create(null),
+      scopes.global,
+      scopes.collection,
+      scopes.environment,
+      locals,
+    );
+  function replaceIn(text, stack = []) {
+    return String(text).replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_, key) => {
+      if (stack.includes(key) || stack.length >= 10)
+        fail("Variable cycle or depth limit: " + key);
+      const values = all();
+      if (!own(values, key)) fail("Unresolved variable: " + key);
+      return replaceIn(values[key], stack.concat(key));
     });
-    for (const [name, ok] of [
-      ["ok", !!value],
-      ["true", value === true],
-      ["false", value === false],
-    ]) {
-      Object.defineProperty(chain, name, {
-        get: () => {
-          assert(ok, message || `Expected ${name}`);
+  }
+  function expect(actual) {
+    const chain = new Proxy(
+      {},
+      {
+        get(target, key, receiver) {
+          if (key === "then") return undefined;
+          if (!Reflect.has(target, key))
+            fail("Unsupported assertion: " + String(key));
+          return Reflect.get(target, key, receiver);
+        },
+      },
+    );
+    for (const word of ["to", "be", "have", "and", "that", "is"])
+      Object.defineProperty(chain, word, { get: () => chain });
+    chain.equal = (value) => {
+      if (actual !== value) fail("Expected values to be equal");
+      return chain;
+    };
+    chain.eql = (value) => {
+      if (JSON.stringify(actual) !== JSON.stringify(value))
+        fail("Expected values to be deeply equal");
+      return chain;
+    };
+    chain.deep = { equal: chain.eql };
+    chain.include = (value) => {
+      if (!actual?.includes?.(value))
+        fail("Expected value to include the supplied item");
+      return chain;
+    };
+    chain.property = (key) => {
+      if (actual == null || !own(Object(actual), key))
+        fail("Expected property: " + key);
+      return expect(actual[key]);
+    };
+    chain.a = chain.an = (type) => {
+      if (
+        (Array.isArray(actual)
+          ? "array"
+          : actual === null
+            ? "null"
+            : typeof actual) !== type
+      )
+        fail("Expected type: " + type);
+      return chain;
+    };
+    chain.below = (value) => {
+      if (!(actual < value)) fail("Expected a smaller value");
+      return chain;
+    };
+    for (const [key, value] of [
+      ["true", true],
+      ["false", false],
+      ["null", null],
+      ["undefined", undefined],
+    ])
+      Object.defineProperty(chain, key, {
+        get() {
+          chain.equal(value);
           return chain;
         },
       });
-    }
     return chain;
+  }
+  const request = input.request;
+  const headers = {
+    get: (key) =>
+      request.headers.find(
+        (p) => p.enabled && p.key.toLowerCase() === String(key).toLowerCase(),
+      )?.value,
+    upsert(pair) {
+      if (!pair || typeof pair.key !== "string")
+        fail("headers.upsert requires { key, value }");
+      const old = request.headers.find(
+        (p) => p.key.toLowerCase() === pair.key.toLowerCase(),
+      );
+      if (old) {
+        old.value = String(pair.value);
+        old.enabled = true;
+      } else
+        request.headers.push({
+          key: pair.key,
+          value: String(pair.value),
+          enabled: true,
+          description: "",
+        });
+    },
+    add(pair) {
+      this.upsert(pair);
+    },
+    remove(key) {
+      request.headers = request.headers.filter(
+        (p) => p.key.toLowerCase() !== String(key).toLowerCase(),
+      );
+    },
   };
-  const freeze = (value) => {
-    if (value && typeof value === "object") {
-      for (const child of Object.values(value)) freeze(child);
-      Object.freeze(value);
-    }
-    return value;
+  const url = {
+    toString: () => request.url,
+    update(value) {
+      request.url = String(value);
+      request.params = [];
+    },
   };
   const response = input.response;
+  const responseBody = () => {
+    if (
+      !response ||
+      response.truncated ||
+      response.binary ||
+      response.body.length > 5 * 1024 * 1024
+    )
+      fail(
+        "Response body is unavailable, binary, or exceeds the script limit (5 MiB)",
+      );
+    return response.body;
+  };
   const pm = {
-    globals,
     environment,
-    collectionVariables: collection,
-    variables: Object.freeze({
-      ...local,
-      get,
-      has: (key) => get(key) !== undefined,
+    collectionVariables,
+    globals,
+    variables: {
+      get: (key) => all()[key],
+      has: (key) => own(all(), key),
+      set: (key, value) => {
+        locals[String(key)] = stringify(value);
+      },
+      unset: (key) => {
+        delete locals[key];
+      },
+      toObject: () => Object.assign({}, all()),
       replaceIn,
-      toObject: () => ({
-        ...scopes.global,
-        ...scopes.collection,
-        ...scopes.environment,
-        ...scopes.local,
-      }),
-    }),
-    request: freeze(input.request),
-    info: Object.freeze({
-      eventName: input.phase === "prerequest" ? "prerequest" : "test",
-      requestName: input.request.name,
-    }),
+    },
+    request: {
+      headers,
+      body: request.body,
+      get url() {
+        return url;
+      },
+      set url(value) {
+        url.update(value);
+      },
+    },
+    response: response
+      ? {
+          code: response.status,
+          status: response.statusText,
+          responseTime: response.duration,
+          headers: {
+            get: (key) =>
+              response.headers.find(
+                (p) => p[0].toLowerCase() === String(key).toLowerCase(),
+              )?.[1],
+          },
+          json: () => JSON.parse(responseBody()),
+          text: responseBody,
+          to: {
+            have: { status: (code) => expect(response.status).equal(code) },
+          },
+        }
+      : undefined,
     expect,
-    test(name, fn) {
-      if (tests.length >= 100) throw new Error("Script test limit exceeded");
+    test(name, callback) {
+      if (tests.length >= 200) fail("Script test limit exceeded");
       try {
-        const v = fn();
-        if (v && typeof v.then === "function")
-          throw new Error("Async tests are not supported");
-        tests.push({ name: String(name), passed: true });
-      } catch (e) {
+        if (typeof callback !== "function" || callback.length)
+          fail("Only synchronous pm.test callbacks are supported");
+        const result = callback();
+        if (result && typeof result.then === "function")
+          fail("Async tests are not supported");
+        tests.push({ name: String(name).slice(0, 256), passed: true });
+      } catch (error) {
         tests.push({
-          name: String(name),
+          name: String(name).slice(0, 256),
           passed: false,
-          error: String(e.message || e).slice(0, 4096),
+          error: String(error.message).slice(0, 1024),
         });
       }
     },
+    sendRequest() {
+      fail(
+        "Unsupported API: pm.sendRequest. Send the saved second request using {{variable}}.",
+      );
+    },
   };
-  if (response)
-    pm.response = Object.freeze({
-      code: response.status,
-      status: response.statusText,
-      responseTime: response.duration,
-      responseSize: response.size,
-      headers: headers(response.headers),
-      to: Object.freeze({
-        have: Object.freeze({
-          status: (code) =>
-            assert(
-              response.status === code,
-              `Expected status ${code}, got ${response.status}`,
-            ),
-        }),
-      }),
-      text() {
-        if (response.binary || response.truncated)
-          throw new Error("Response is binary or truncated");
-        return response.body;
-      },
-      json() {
-        return parse(this.text());
-      },
-    });
-  const log =
-    (level) =>
-    (...args) => {
-      if (logs.length >= 100) throw new Error("Script log limit exceeded");
-      logs.push({ level, message: args.map(text).join(" ").slice(0, 4096) });
+  let logSize = 0;
+  const console = {};
+  for (const level of ["log", "info", "warn", "error"])
+    console[level] = (...values) => {
+      if (logs.length >= 200 || logSize >= 65536) return;
+      const message = values
+        .map((v) => (typeof v === "string" ? v : JSON.stringify(v)))
+        .join(" ")
+        .slice(0, 2048);
+      logSize += message.length;
+      logs.push({ level, message });
     };
-  Object.defineProperty(globalThis, "pm", {
-    value: Object.freeze(pm),
-    configurable: false,
-    writable: false,
-  });
-  Object.defineProperty(globalThis, "console", {
-    value: Object.freeze({
-      log: log("log"),
-      info: log("info"),
-      warn: log("warn"),
-      error: log("error"),
-    }),
-    configurable: false,
-    writable: false,
-  });
-  return () => stringify({ changes, logs, tests, local: scopes.local });
-});
+  try {
+    const result = new Function(
+      "pm",
+      "console",
+      '"use strict";\n' + input.code + "\n//# sourceURL=localpm-script.js",
+    )(pm, console);
+    if (result && typeof result.then === "function")
+      fail("Async scripts are not supported");
+    return JSON.stringify({
+      patches,
+      redactions: patches,
+      tests,
+      logs,
+      locals,
+      request,
+    });
+  } catch (error) {
+    return JSON.stringify({
+      patches: [],
+      redactions: patches,
+      tests,
+      logs,
+      locals: input.locals,
+      request: input.request,
+      error: String(error.message).slice(0, 2048),
+      stack: String(error.stack).slice(0, 2048),
+    });
+  }
+}

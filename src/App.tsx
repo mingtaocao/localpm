@@ -1,6 +1,14 @@
-import { useCopyFeedback } from "./hooks/useCopyFeedback";
-import { platformShortcut } from "./utils/shortcuts";
 import { useEditorPreferences } from "./stores/editorPreferences";
+import { platformShortcut } from "./utils/shortcuts";
+import { useCopyFeedback } from "./hooks/useCopyFeedback";
+import { ScriptEditor } from "./components/scripts/ScriptEditor";
+import { ScriptResults } from "./components/scripts/ScriptResults";
+import {
+  requestScripts,
+  readScripts,
+  inheritedScriptNames,
+  type VariableUpdate,
+} from "./scripts/model";
 import { version as appVersion } from "../package.json";
 import { usePreferences } from "./stores/preferences";
 import { formatError } from "./i18n/errors";
@@ -45,8 +53,6 @@ import {
 } from "./components/ConsolePanel";
 import { requestToCurl } from "./utils/curl";
 import { Icon } from "./components/Icon";
-import { ScriptsEditor } from "./components/ScriptsEditor";
-import { ScriptResults, scriptErrorReport } from "./components/ScriptResults";
 import { MethodSelect } from "./components/MethodSelect";
 import { RequestTabs } from "./components/RequestTabs";
 import { MoreMenu } from "./components/MoreMenu";
@@ -195,11 +201,11 @@ export default function App() {
               : record.error
                 ? "error"
                 : "complete",
+          scripts: result?.scripts,
           status: result?.status,
           statusText: result?.statusText,
           duration: result?.duration,
           size: result?.size,
-          scripts: result?.scripts,
           responseHeaders: result?.headers,
           responseBody: result?.body.slice(0, 64 * 1024),
           responseTruncated: result
@@ -279,22 +285,6 @@ export default function App() {
       unlisten?.();
     };
   }, []);
-  useEffect(() => {
-    let disposed = false;
-    let stop: (() => void) | undefined;
-    void listen("variables-updated", () => {
-      void useWorkspace.getState().refreshVariables().catch(setError);
-    })
-      .then((unlisten) => {
-        if (disposed) unlisten();
-        else stop = unlisten;
-      })
-      .catch(() => {});
-    return () => {
-      disposed = true;
-      stop?.();
-    };
-  }, []);
   const searchRef = useRef<HTMLInputElement>(null);
   const tab = tabs.find((t) => t.request.id === active);
   const tabView = { ...defaultRequestView, ...tab?.view };
@@ -311,10 +301,10 @@ export default function App() {
     [tab?.response, responseTab],
   );
   const r = tab?.request;
-  // Document editors need room for their controls and readable document lines.
+  // Raw bodies need room for mode controls, editor tools and readable document lines.
   const minEditorHeight = Math.min(
     editor === "Scripts"
-      ? 500
+      ? 420
       : editor === "Body" && r?.body.mode === "raw"
         ? 380
         : consoleOpen
@@ -423,7 +413,7 @@ export default function App() {
     }
   }, [tabs, drafts]);
   const save = async (target?: SaveTarget) => {
-    // A delayed autosave must merge into the latest workspace, not its timer's closure.
+    // Explicit Save merges into the latest workspace without rolling back scope changes.
     const workspace = useWorkspace.getState().workspace;
     if (!r || !workspace) return;
     const items = [...workspace.items];
@@ -485,12 +475,6 @@ export default function App() {
       throw e;
     }
   };
-  useEffect(() => {
-    if (!tab?.dirty || !r || !w?.items.some((i) => i.request?.id === r.id))
-      return;
-    const timer = setTimeout(() => void save().catch(fail), 2000);
-    return () => clearTimeout(timer);
-  }, [r, tab?.dirty]);
   const activateRequest = (id: string) => {
     setActive(id);
     setSelected(w?.items.find((item) => item.request?.id === id)?.id ?? "");
@@ -641,6 +625,22 @@ export default function App() {
       );
     }
   };
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<VariableUpdate[]>("script-variables-updated", ({ payload }) => {
+      useWorkspace.getState().applyScriptUpdates(payload);
+    })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
   const send = async () => {
     if (!r || !w || activeSends.current.has(r.id)) return;
     const id = crypto.randomUUID();
@@ -676,14 +676,18 @@ export default function App() {
       responseIsPrevious: !!tab?.response,
     });
     try {
-      if (w.items.some((item) => item.request?.id === request.id)) await save();
-      else await persist(w);
+      // Send retains edits as a draft; only explicit Save changes a collection request.
+      if (tab?.dirty) await drafts.save(r);
+      // Await existing scope/settings writes without creating a new workspace save.
+      await useWorkspace.getState().flush();
       if (execution.cancelled)
         throw { code: "REQUEST_CANCELLED", message: "Request cancelled" };
       execution.started = true;
       const result = await api.send(request, id, context);
-      if (result.scripts)
-        await useWorkspace.getState().refreshVariables().catch(setError);
+      // Merge by target/key before Send completes, so the next request freezes fresh values.
+      useWorkspace
+        .getState()
+        .applyScriptUpdates(result.scripts?.variableUpdates ?? []);
       updateExecution({
         response: result,
         responseIsPrevious: false,
@@ -699,11 +703,11 @@ export default function App() {
             ? {
                 ...entry,
                 phase: "complete",
+                scripts: result.scripts,
                 status: result.status,
                 statusText: result.statusText,
                 duration: result.duration,
                 size: result.size,
-                scripts: result.scripts,
                 responseHeaders: result.headers,
                 responseBody: result.body.slice(0, 64 * 1024),
                 responseTruncated:
@@ -724,7 +728,6 @@ export default function App() {
                 ...entry,
                 phase: "error",
                 duration: Math.round(performance.now() - started),
-                scripts: scriptErrorReport(e),
                 error: formatError(e),
                 errorDetail:
                   e && typeof e === "object" && "message" in e
@@ -747,7 +750,7 @@ export default function App() {
       if (result) {
         setWorkspace(result);
         setNotice(
-          "Postman data imported. Scripts are preserved and are not executed.",
+          "Postman data imported. Enable scripts in the Scripts tab before running them.",
         );
       }
     } catch (e) {
@@ -1495,15 +1498,6 @@ export default function App() {
                       value={collection.auth}
                       onChange={(auth) => patchCollection({ auth })}
                     />
-                    <h3>{tr("Scripts")}</h3>
-                    <ScriptsEditor
-                      enableToggle={false}
-                      metadata={collection.metadata}
-                      onChange={(metadata) => patchCollection({ metadata })}
-                      sessions={editorSessions}
-                      stateKey={`collection:${collection.id}`}
-                      theme={resolvedTheme}
-                    />
                     <h3>{tr("Collection variables")}</h3>
                     <KeyValue
                       secrets
@@ -1540,14 +1534,6 @@ export default function App() {
                     <Auth
                       value={selectedItem.auth}
                       onChange={(auth) => patchFolder({ auth })}
-                    />
-                    <ScriptsEditor
-                      enableToggle={false}
-                      metadata={selectedItem.metadata}
-                      onChange={(metadata) => patchFolder({ metadata })}
-                      sessions={editorSessions}
-                      stateKey={`folder:${selectedItem.id}`}
-                      theme={resolvedTheme}
                     />
                     <button
                       onClick={() =>
@@ -1788,47 +1774,50 @@ export default function App() {
                       className="configuration-navigation"
                       aria-label={tr("Request settings")}
                     >
-                      {["Params", "Headers", "Body", "Authorization"].map(
-                        (name) => {
-                          const count =
-                            name === "Params"
-                              ? r.params.filter((p) => p.enabled && p.key)
+                      {[
+                        "Params",
+                        "Headers",
+                        "Body",
+                        "Authorization",
+                        "Scripts",
+                      ].map((name) => {
+                        const count =
+                          name === "Params"
+                            ? r.params.filter((p) => p.enabled && p.key).length
+                            : name === "Headers"
+                              ? r.headers.filter((p) => p.enabled && p.key)
                                   .length
-                              : name === "Headers"
-                                ? r.headers.filter((p) => p.enabled && p.key)
-                                    .length
-                                : 0;
-                          const configured =
-                            name === "Body"
-                              ? r.body.mode !== "none"
-                              : name === "Authorization" &&
-                                !["inherit", "noauth"].includes(
-                                  r.auth?.type ?? "inherit",
-                                );
-                          return (
-                            <button
-                              key={name}
-                              aria-label={tr(name)}
-                              aria-expanded={editor === name}
-                              className={editor === name ? "active" : ""}
-                              onClick={() => chooseEditor(name)}
-                            >
-                              {tr(name)}
-                              {count > 0 && (
-                                <span className="config-count">{count}</span>
-                              )}
-                              {configured && (
-                                <span
-                                  className="config-count"
-                                  aria-label={tr("Configured")}
-                                >
-                                  •
-                                </span>
-                              )}
-                            </button>
-                          );
-                        },
-                      )}
+                              : 0;
+                        const configured =
+                          name === "Body"
+                            ? r.body.mode !== "none"
+                            : name === "Authorization" &&
+                              !["inherit", "noauth"].includes(
+                                r.auth?.type ?? "inherit",
+                              );
+                        return (
+                          <button
+                            key={name}
+                            aria-label={tr(name)}
+                            aria-expanded={editor === name}
+                            className={editor === name ? "active" : ""}
+                            onClick={() => chooseEditor(name)}
+                          >
+                            {tr(name)}
+                            {count > 0 && (
+                              <span className="config-count">{count}</span>
+                            )}
+                            {configured && (
+                              <span
+                                className="config-count"
+                                aria-label={tr("Configured")}
+                              >
+                                •
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
                     </nav>
                     <div className="request-tools">
                       <span
@@ -1918,22 +1907,13 @@ export default function App() {
                         <button onClick={() => chooseEditor("Settings")}>
                           {tr("Request settings")}
                         </button>
-                        <button onClick={() => chooseEditor("Scripts")}>
-                          {tr("Scripts")}
-                        </button>
                       </MoreMenu>
                     </div>
                   </div>
                   <div className="editor-content" hidden={!editor}>
-                    {["Settings", "Scripts"].includes(editor) && (
+                    {editor === "Settings" && (
                       <div className="advanced-heading">
-                        <span>
-                          {tr(
-                            editor === "Settings"
-                              ? "Request settings"
-                              : "Scripts",
-                          )}
-                        </span>
+                        <span>{tr("Request settings")}</span>
                         <button
                           className="icon-button"
                           aria-label={tr("Close configuration")}
@@ -1979,14 +1959,48 @@ export default function App() {
                       />
                     )}
                     {editor === "Scripts" && (
-                      <ScriptsEditor
-                        metadata={r.metadata}
-                        fallback={requestItem?.metadata}
-                        onChange={(metadata) => edit({ metadata })}
-                        sessions={editorSessions}
-                        stateKey={r.id}
+                      <ScriptEditor
+                        requestId={r.id}
+                        inherited={inheritedScriptNames(w, r)}
+                        inheritedEnabled={
+                          readScripts(requestCollection?.metadata).enabled
+                        }
+                        onInheritedChange={(enabled) => {
+                          const workspace = useWorkspace.getState().workspace;
+                          if (!workspace || !requestCollection) return;
+                          void persist({
+                            ...workspace,
+                            collections: workspace.collections.map((c) =>
+                              c.id === requestCollection.id
+                                ? {
+                                    ...c,
+                                    metadata: {
+                                      ...(c.metadata ?? {}),
+                                      localpmScripts: {
+                                        ...readScripts(c.metadata),
+                                        enabled,
+                                      },
+                                    },
+                                  }
+                                : c,
+                            ),
+                          }).catch(fail);
+                        }}
+                        value={requestScripts(
+                          r,
+                          requestItem?.metadata,
+                          readScripts(requestCollection?.metadata).enabled,
+                        )}
                         theme={resolvedTheme}
-                        inherited
+                        sessions={editorSessions}
+                        onChange={(scripts) =>
+                          edit({
+                            metadata: {
+                              ...(r.metadata ?? {}),
+                              localpmScripts: scripts,
+                            },
+                          })
+                        }
                       />
                     )}
                     {editor === "Body" && (
@@ -2450,11 +2464,9 @@ export default function App() {
                         </button>
                       </div>
                     ))}
-                  <ScriptResults
-                    report={
-                      scriptErrorReport(tab?.error) ?? tab?.response?.scripts
-                    }
-                  />
+                  {tab?.response?.scripts && (
+                    <ScriptResults report={tab.response.scripts} />
+                  )}
                   {invalidJson && (
                     <p className="response-context" role="status">
                       {tr("Invalid JSON; showing the original response.")}

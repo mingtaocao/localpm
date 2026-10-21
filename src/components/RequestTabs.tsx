@@ -158,7 +158,7 @@ export function RequestTabs({
           {tabs.map((tab, index) => (
             <div
               key={tab.request.id}
-              className={active === tab.request.id ? "tab active" : "tab"}
+              className={`tab${active === tab.request.id ? " active" : ""}${tab.dirty ? " is-dirty" : ""}`}
             >
               <button
                 title={`${tab.request.name}\n${tab.request.method} ${tab.request.url}`}
@@ -197,6 +197,16 @@ export function RequestTabs({
                   {tab.request.method}
                 </span>
                 <span className="tab-name">{tab.request.name}</span>
+              </button>
+              <button
+                className="tab-close"
+                aria-label={tr("Close request: %{name}", {
+                  name: tab.request.name,
+                })}
+                title={tr("Close tab (draft retained)")}
+                onClick={() => onClose(tab.request.id)}
+              >
+                <Icon name="close" />
                 {tab.dirty && (
                   <span
                     className="tab-dirty-indicator"
@@ -208,16 +218,6 @@ export function RequestTabs({
                     </span>
                   </span>
                 )}
-              </button>
-              <button
-                className="tab-close"
-                aria-label={tr("Close request: %{name}", {
-                  name: tab.request.name,
-                })}
-                title={tr("Close tab (draft retained)")}
-                onClick={() => onClose(tab.request.id)}
-              >
-                <Icon name="close" />
               </button>
             </div>
           ))}

@@ -38,6 +38,7 @@ fn secure_pairs(pairs: &mut [Pair]) -> Result<()> {
                     )
                 })?;
             p.secret_ref = Some(r);
+            p.secret_version = Some(uuid::Uuid::new_v4().to_string());
             p.value.clear()
         }
     }
@@ -122,7 +123,6 @@ impl ExecutionContext {
 pub struct RequestService {
     pub storage: Storage,
     pub http: HttpEngine,
-    workspace_write: Mutex<()>,
     active: Mutex<HashMap<String, CancellationToken>>,
     emitter: Option<EventSink>,
 }
@@ -137,23 +137,11 @@ impl RequestService {
         Ok(Self {
             storage,
             http,
-            workspace_write: Mutex::new(()),
             active: Mutex::new(HashMap::new()),
             emitter: None,
         })
     }
     pub fn save_workspace(&self, mut workspace: Workspace) -> Result<Workspace> {
-        let _guard = self
-            .workspace_write
-            .lock()
-            .map_err(|_| AppError::new("DATABASE_ERROR", "Workspace locked"))?;
-        let current = self.storage.load()?;
-        if workspace.variable_revision != current.variable_revision {
-            return Err(AppError::new(
-                "VARIABLE_REVISION_CONFLICT",
-                "Variables changed during this edit; reload and merge",
-            ));
-        }
         secure_pairs(&mut workspace.globals)?;
         secure_proxy(&mut workspace.settings)?;
         for collection in &mut workspace.collections {
@@ -170,87 +158,11 @@ impl RequestService {
                 secure_proxy(&mut request.settings)?;
             }
         }
-        workspace.variable_revision += 1;
-        self.storage.save(&workspace)?;
-        Ok(workspace)
-    }
-    pub fn import(&self, input: Value) -> Result<Workspace> {
-        let _guard = self
-            .workspace_write
-            .lock()
-            .map_err(|_| AppError::new("DATABASE_ERROR", "Workspace locked"))?;
-        let mut ws = self.storage.load()?;
-        crate::postman::import(input, &mut ws)?;
-        ws.variable_revision += 1;
-        self.storage.save(&ws)?;
-        Ok(ws)
-    }
-    fn commit_script_variables(
-        &self,
-        changes: &[crate::scripts::Change],
-        context: &ExecutionContext,
-    ) -> Result<()> {
-        if changes.is_empty() {
-            return Ok(());
-        }
-        if context.source == "mcp" && changes.iter().any(|c| c.scope == "global") {
-            return Err(AppError::new("MCP_SCRIPT_GLOBAL_WRITE_DENIED", "MCP scripts cannot write workspace globals; use environment or collection variables"));
-        }
-        let guard = self
-            .workspace_write
-            .lock()
-            .map_err(|_| AppError::new("DATABASE_ERROR", "Workspace locked"))?;
-        let mut ws = self.storage.load()?;
-        crate::scripts::apply(
-            &mut ws,
-            changes,
-            context.environment_id.as_deref(),
-            context.collection_id.as_deref(),
-        )?;
-        // Stage secret replacements under fresh credential references. A database
-        // failure cannot mutate the credential still referenced by the old workspace.
-        for change in changes.iter().filter(|c| c.value.is_some()) {
-            let rows = match change.scope.as_str() {
-                "global" => Some(&mut ws.globals),
-                "environment" => ws
-                    .environments
-                    .iter_mut()
-                    .find(|e| Some(&e.id) == context.environment_id.as_ref())
-                    .map(|e| &mut e.variables),
-                "collection" => ws
-                    .collections
-                    .iter_mut()
-                    .find(|c| Some(&c.id) == context.collection_id.as_ref())
-                    .map(|c| &mut c.variables),
-                _ => None,
-            };
-            if let Some(rows) = rows {
-                for row in rows
-                    .iter_mut()
-                    .filter(|p| p.key == change.key && p.is_secret)
-                {
-                    row.secret_ref = None;
-                }
-            }
-        }
-        secure_pairs(&mut ws.globals)?;
-        for c in &mut ws.collections {
-            secure_pairs(&mut c.variables)?;
-            secure_metadata(&mut c.metadata, "variable", &c.variables);
-        }
-        for e in &mut ws.environments {
-            secure_pairs(&mut e.variables)?;
-            secure_metadata(&mut e.metadata, "values", &e.variables);
-        }
-        ws.variable_revision += 1;
-        self.storage.save(&ws)?;
-        drop(guard);
-        // No variable values travel in events; clients fetch the secured workspace.
-        self.emit(
-            "variables-updated",
-            json!({"revision":ws.variable_revision}),
-        );
-        Ok(())
+        self.storage.update_workspace(|current| {
+            crate::scripts::merge_stale_variables(&mut workspace, current);
+            *current = workspace.clone();
+            Ok(())
+        })
     }
     pub fn save_draft(&self, id: &str, mut request: Option<RequestSpec>) -> Result<()> {
         if let Some(request) = &mut request {
@@ -268,7 +180,7 @@ impl RequestService {
         }
     }
     pub fn preview(&self, request: &RequestSpec) -> Result<Value> {
-        Ok(preview_prepared(&crate::scripts::prepare(
+        Ok(preview_prepared(&crate::http::prepare(
             &self.storage.load()?,
             request,
         )?))
@@ -287,6 +199,97 @@ impl RequestService {
         active.insert(id.into(), CancellationToken::new());
         Ok(())
     }
+    pub fn execution_token(&self, id: &str) -> Result<CancellationToken> {
+        self.active
+            .lock()
+            .map_err(|_| AppError::new("EXECUTION_ERROR", "Execution registry locked"))?
+            .get(id)
+            .cloned()
+            .ok_or_else(|| AppError::new("EXECUTION_ERROR", "Execution not registered"))
+    }
+    pub fn forget_execution(&self, id: &str) {
+        if let Ok(mut active) = self.active.lock() {
+            active.remove(id);
+        }
+    }
+    fn commit_script_variables(
+        &self,
+        plan: &mut crate::scripts::ScriptPlan,
+        request: &RequestSpec,
+        source: &str,
+    ) -> Result<()> {
+        let mut updates = crate::scripts::changes(plan, request);
+        if updates.is_empty() {
+            return Ok(());
+        }
+        // MCP execution permissions cover the selected collection/environment, not workspace globals.
+        if source == "mcp" && updates.iter().any(|u| u["scope"] == "global") {
+            return Err(AppError::new(
+                "SCRIPT_SCOPE_DENIED",
+                "MCP scripts cannot modify workspace global variables",
+            ));
+        }
+        let workspace = self.storage.update_workspace(|workspace| {
+            for update in &updates {
+                let pairs = crate::scripts::scope_pairs_mut(
+                    workspace,
+                    update["scope"].as_str().unwrap(),
+                    update["id"].as_str(),
+                )?;
+                let current = json!(pairs
+                    .iter()
+                    .find(|p| Some(p.key.as_str()) == update["key"].as_str()));
+                if current != update["before"] {
+                    return Err(AppError::new(
+                        "SCRIPT_VARIABLE_CONFLICT",
+                        format!(
+                            "Variable changed during execution: {}",
+                            update["key"].as_str().unwrap_or_default()
+                        ),
+                    ));
+                }
+            }
+            for update in &mut updates {
+                crate::scripts::apply_update(workspace, update)?;
+                let pairs = crate::scripts::scope_pairs_mut(
+                    workspace,
+                    update["scope"].as_str().unwrap(),
+                    update["id"].as_str(),
+                )?;
+                // Stage new secret credentials so a later failed write cannot change the old reference.
+                if let Some(pair) = pairs
+                    .iter_mut()
+                    .find(|p| Some(p.key.as_str()) == update["key"].as_str())
+                {
+                    if pair.is_secret && !pair.value.is_empty() {
+                        pair.secret_ref = None;
+                    }
+                }
+                secure_pairs(pairs)?;
+                update["pair"] = json!(pairs
+                    .iter()
+                    .find(|p| Some(p.key.as_str()) == update["key"].as_str()));
+                // The old value is needed only for conflict detection; never emit it.
+                update.as_object_mut().unwrap().remove("before");
+            }
+            crate::scripts::record_versions(workspace, &mut updates);
+            Ok(())
+        })?;
+        // Continue with the execution's frozen scopes; only refresh its committed variable metadata.
+        for update in &updates {
+            crate::scripts::apply_update(&mut plan.workspace, update)?;
+        }
+        plan.workspace.settings["scriptRevision"] = workspace.settings["scriptRevision"].clone();
+        plan.workspace.settings["scriptVariableVersions"] =
+            workspace.settings["scriptVariableVersions"].clone();
+        plan.baseline = plan.workspace.clone();
+        plan.report["variableUpdates"]
+            .as_array_mut()
+            .unwrap()
+            .extend(updates.clone());
+        self.emit("script-variables-updated", json!(updates));
+        Ok(())
+    }
     pub fn cancel(&self, id: &str) {
         if let Ok(active) = self.active.lock() {
             if let Some(token) = active.get(id) {
@@ -295,43 +298,9 @@ impl RequestService {
         }
         self.http.cancel(id);
     }
-    pub async fn send(
-        &self,
-        workspace: Workspace,
-        request: RequestSpec,
-        id: String,
-        context: ExecutionContext,
-    ) -> Result<Response> {
-        self.reserve_execution(&id)?;
-        let token = self
-            .active
-            .lock()
-            .map_err(|_| AppError::new("EXECUTION_ERROR", "Execution registry locked"))?
-            .get(&id)
-            .cloned()
-            .unwrap();
-        let cancelled = token.clone();
-        let prepared = tokio::task::spawn_blocking(move || {
-            crate::scripts::prepare_with_cancel(&workspace, &request, &token)
-        })
-        .await
-        .map_err(|e| AppError::new("SCRIPT_RUNTIME", e))
-        .and_then(|r| r);
-        match prepared {
-            Ok(prepared) => self.execute(prepared, id, context).await,
-            Err(error) => {
-                self.active.lock().ok().map(|mut a| a.remove(&id));
-                if cancelled.is_cancelled() {
-                    Err(AppError::new("REQUEST_CANCELLED", "Request cancelled"))
-                } else {
-                    Err(error)
-                }
-            }
-        }
-    }
     pub async fn execute(
         &self,
-        prepared: PreparedRequest,
+        mut prepared: PreparedRequest,
         id: String,
         context: ExecutionContext,
     ) -> Result<Response> {
@@ -341,6 +310,14 @@ impl RequestService {
                 .lock()
                 .map_err(|_| AppError::new("EXECUTION_ERROR", "Execution registry locked"))?;
             active.entry(id.clone()).or_default().clone()
+        };
+        let preparation_error = if !token.is_cancelled() {
+            prepared.scripts.as_mut().and_then(|plan| {
+                self.commit_script_variables(plan, &prepared.request, &context.source)
+                    .err()
+            })
+        } else {
+            None
         };
         let request = security::history_snapshot(&prepared.request, &prepared.vars);
         let started = SystemTime::now()
@@ -384,16 +361,7 @@ impl RequestService {
             self.http
                 .execute_with_diagnostics(prepared.clone(), id.clone(), Some(&emit));
         tokio::pin!(execution);
-        let pre_commit = if let Some(scripts) = &prepared.scripts {
-            if token.is_cancelled() {
-                Err(AppError::new("REQUEST_CANCELLED", "Request cancelled"))
-            } else {
-                self.commit_script_variables(&scripts.before, &context)
-            }
-        } else {
-            Ok(())
-        };
-        let mut result = if let Err(error) = pre_commit {
+        let mut result = if let Some(error) = preparation_error {
             Err(error)
         } else if token.is_cancelled() {
             Err(AppError::new("REQUEST_CANCELLED", "Request cancelled"))
@@ -415,76 +383,69 @@ impl RequestService {
                 result = Err(error);
             }
         }
-        let mut report_vars = prepared.vars.clone();
-        if let (Some(scripts), Ok(response)) = (&prepared.scripts, &mut result) {
-            let mut report = scripts.report.clone();
-            let script_work = scripts.clone();
-            let request = prepared.request.clone();
-            let received = response.clone();
-            let cancelled = token.clone();
-            let post = tokio::task::spawn_blocking(move || {
-                crate::scripts::post(&script_work, &request, &received, &cancelled)
-            })
-            .await;
-            let outcome = post
-                .map_err(|e| AppError::new("SCRIPT_RUNTIME", e))
-                .and_then(|r| r);
-            match outcome {
-                Ok((changes, mut phase)) => {
-                    // Include newly extracted secrets when sanitizing logs and execution history.
-                    for c in &changes {
-                        if let Some(value) = &c.value {
-                            let existing_secret = report_vars.get(&c.key).is_some_and(|v| v.secret);
-                            if existing_secret || security::sensitive_key(&c.key) {
-                                report_vars.insert(
-                                    format!("__script_{}", c.key),
-                                    VariableValue {
-                                        value: value.clone(),
-                                        scope: c.scope.clone(),
-                                        secret: true,
-                                    },
-                                );
+        let mut redaction_vars = prepared.vars.clone();
+        if let Some(mut plan) = prepared.scripts.take() {
+            if let Ok(response) = &result {
+                if !token.is_cancelled() {
+                    let mut script_request = prepared.request.clone();
+                    let response = response.clone();
+                    let script_token = token.clone();
+                    let run = tokio::task::spawn_blocking(move || {
+                        let outcome = plan.run(&mut script_request, Some(&response), &script_token);
+                        (plan, outcome)
+                    })
+                    .await;
+                    match run {
+                        Ok((mut completed, outcome)) => {
+                            let commit = if token.is_cancelled() {
+                                Err(AppError::new("REQUEST_CANCELLED", "Request cancelled"))
+                            } else {
+                                self.commit_script_variables(
+                                    &mut completed,
+                                    &prepared.request,
+                                    &context.source,
+                                )
+                            };
+                            if let Err(error) = outcome.and(commit) {
+                                completed.report["error"] = json!(error);
+                            }
+                            // Newly extracted values must also be covered by diagnostic redaction.
+                            if let Ok(vars) = crate::variables::context(
+                                &completed.workspace,
+                                context.collection_id.as_deref(),
+                            ) {
+                                for (key, mut value) in vars {
+                                    if security::sensitive_key(&key) {
+                                        value.secret = true;
+                                    }
+                                    redaction_vars.insert(format!("__script_final_{key}"), value);
+                                }
+                            }
+                            if let Ok(response) = &mut result {
+                                response.scripts = completed.report;
+                            }
+                        }
+                        Err(error) => {
+                            if let Ok(response) = &mut result {
+                                response.scripts = json!({"error":{"code":"SCRIPT_ERROR","message":error.to_string()}});
                             }
                         }
                     }
-                    if token.is_cancelled() {
-                        phase["status"] = json!("failed");
-                        phase["error"] = json!("Script cancelled");
-                    } else if let Err(error) = self.commit_script_variables(&changes, &context) {
-                        phase["status"] = json!("failed");
-                        phase["error"] = json!(error.message);
-                    }
-                    report["postresponse"] = phase;
-                }
-                Err(error) => {
-                    report["postresponse"] =
-                        json!({"status":"failed","error":error.message,"logs":[],"tests":[]})
                 }
             }
-            security::redact_value(&mut report, &report_vars);
-            response.scripts = Some(report);
         }
         let mut history = json!({"executionId":id,"source":context.source,"environmentId":context.environment_id,"environmentName":context.environment_name});
         match &result {
             Ok(response) => {
                 record["status"] = json!("completed");
-                record["response"] = redacted_response(response, &report_vars);
-                record["scripts"] = response.scripts.clone().unwrap_or(Value::Null);
-                if response.scripts.as_ref().is_some_and(|s| {
-                    s["postresponse"]["status"] == "failed"
-                        || ["prerequest", "postresponse"].iter().any(|phase| {
-                            s[phase]["tests"]
-                                .as_array()
-                                .is_some_and(|tests| tests.iter().any(|t| t["passed"] == false))
-                        })
-                }) {
-                    record["status"] = json!("failed");
-                    record["error"] = json!({"code":"SCRIPT_POST_RESPONSE_FAILED","message":"Post-response script failed; HTTP response retained"});
-                }
+                record["response"] = redacted_response(response, &redaction_vars);
                 history["status"] = json!(response.status);
                 history["duration"] = json!(response.duration);
                 history["size"] = json!(response.size);
                 history["body"] = record["response"]["body"].clone();
+                if !response.scripts.is_null() {
+                    history["scripts"] = record["response"]["scripts"].clone();
+                }
             }
             Err(error) => {
                 let mut safe = serde_json::to_value(error).unwrap_or(Value::Null);
@@ -553,7 +514,13 @@ pub fn redacted_response(response: &Response, vars: &Variables) -> Value {
         })
         .collect();
     let body = security::response_preview(&response.body, vars);
-    json!({"status":response.status,"statusText":response.status_text,"headers":headers,"body":body,"duration":response.duration,"size":response.size,"contentType":response.content_type,"finalUrl":security::redact_url(&response.final_url,vars),"redirects":response.redirects.iter().map(|url|security::redact_url(url,vars)).collect::<Vec<_>>(),"file":response.file,"truncated":response.truncated||body.len()>=65536,"binary":response.binary,"scripts":response.scripts})
+    let mut output = json!({"status":response.status,"statusText":response.status_text,"headers":headers,"body":body,"duration":response.duration,"size":response.size,"contentType":response.content_type,"finalUrl":security::redact_url(&response.final_url,vars),"redirects":response.redirects.iter().map(|url|security::redact_url(url,vars)).collect::<Vec<_>>(),"file":response.file,"truncated":response.truncated||body.len()>=65536,"binary":response.binary});
+    if !response.scripts.is_null() {
+        let mut scripts = response.scripts.clone();
+        security::redact_value(&mut scripts, vars);
+        output["scripts"] = scripts;
+    }
+    output
 }
 
 #[cfg(test)]

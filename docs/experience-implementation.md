@@ -37,35 +37,18 @@ Implemented incrementally:
 
 Validation for this lifecycle audit: browser regressions reproduce tab-switch draft loss, reopening stale collection content, stale writes after Save, environment switching during a delayed send, environment rollback during delayed autosave, editing/switching during slow close and draft-write failure/retry. Unit checks cover independent debounce, ordered writes/deletion, retry and cloned execution scopes. The current execution host has no Rust toolchain; native compilation, the real Rust bridge and packaged Windows/macOS execution still require platform CI/acceptance.
 
-Pending: explicit collection Save vs automatic draft saving; stable key-value row identity/paste; variable inspector; Console selection/maximization; shared viewer for MCP execution details. Existing collection autosave and save-before-send behavior remain in place.
+Collection requests now require explicit Save. Editing retains a separate local draft; Send flushes that draft and existing scope/settings writes, then executes the click-time snapshot without updating the saved request or clearing dirty state. The former two-second collection autosave is removed. Closing/reopening and restarting restore retained drafts; explicit Save updates the collection and removes the corresponding draft.
+
+Validation covers idle edits, Send without workspace writes, snapshot isolation, cancellation during draft persistence, draft recovery after reload and explicit Save. Pending: stable key-value row identity/paste; variable inspector; Console selection/maximization; shared viewer for MCP execution details.
 
 ## Phase C — scripts
 
-Implemented the bounded synchronous script subset described in [scripts.md](scripts.md): request/collection/folder scripts, pre-request and post-response editors, snippets, scoped variables, response access, basic tests, console logs, and shared manual/MCP orchestration. Imported scripts remain disabled until the request opts in. Full Postman Sandbox compatibility and native Windows runtime verification remain outside this delivery.
+Implemented the core two-request workflow: editable pre-request/post-response scripts, bounded native QuickJS VM, core variable/response/request APIs, synchronous tests and logs, per-key conflict-checked variable persistence, frontend variable updates before the next send, and edited Postman event export. Imported scripts require explicit opt-in. Manual sends and MCP use the same runtime; MCP preview is read-only and global writes are denied. See [scripts.md](scripts.md) for the exact API subset and lifecycle.
+
+Validation includes real HTTP/SQLite extraction and reuse, restart, scope switching, stale full saves, write conflicts, exceptions, timeout, import/export and MCP preview/run. Browser tests cover English/light and Chinese/dark with real Rust execution.
+
+Pending: packaged Windows/macOS runtime and cancellation acceptance, expanded snippets/assertions, per-script source navigation, and the remaining full Phase C design. No full Postman Sandbox or Runner compatibility claim.
 
 ## Phase D — compatibility and native acceptance
 
 Pending: script round-trip tests, MCP execution parity, variable patch conflicts, large-response background formatting/preview improvements, native OS acceptance and full workflow checks. Further work follows the gates and acceptance scenarios in the design.
-
-## 2026-10-18: reduce visual weight and speed up routine input
-
-Synced clean `dev` to `ba3314d` before this work, preserving the draft ordering, send/environment snapshot and status-dot fixes. Application version remains 0.11.0.
-
-- Editor tools: Find, Word wrap and applicable Format JSON remain directly available. Fold/unfold are in an editor-specific More menu. Font size is controlled once in Settings, persisted through the existing editor preference store and applied to both request/response editors. Editor sessions, folds, history and keyboard commands remain intact.
-- Auxiliary buttons: resource controls, Save and editor/Console helpers use quiet surfaces; Send remains the primary action. Hover, keyboard focus, selected and disabled states remain distinguishable. Focused editors use one border without an additional inset shadow.
-- Copy feedback: response, header, cURL, Console diagnostics and MCP connection copying use a shared 1.6-second, action-scoped acknowledgement. Repeated copies restart the timer; unmounts cancel it; clipboard failures never display success and receive a clipboard-specific error. Clipboard contents are not placed in feedback state or persisted. Import/recovery notices retain their existing behavior.
-- Platform hints: Save/Search/Find/JSON-format hints use `Ctrl` on Windows/Linux and `⌘` on macOS. Console no longer displays a modifier symbol that did not describe an actual shortcut. Both language dictionaries remain aligned.
-- Key/value input: an uncommitted trailing blank row allows direct continued input without clicking Add row. Placeholder rows do not trigger writes. Params accepts multi-line key=value, query strings and two/three-column spreadsheet rows; Headers accepts multi-line name:value and spreadsheet rows. The parser preserves duplicate keys, empty values, templates, colons/equals signs inside values, existing following rows and disabled flags. Partly unrecognized input falls back to ordinary paste instead of being partly imported. Bulk paste is enabled only in the request Params/Headers sections; secret variable editing retains its blur-to-commit behavior. Secret checkboxes now have row-specific accessible labels.
-
-Validation: production TypeScript/Vite build, ESLint, 22 Vitest cases, 4 version-sync cases and 76 Playwright cases pass. Added coverage includes shared font persistence, compact menu access, both-theme focus/button styles, placeholder exclusion from saved data, lossless multi-line paste, repeated-copy timing/failure, and Windows-style hints in both languages. Reviewed `artifacts/experience-refinement-light.png` and `artifacts/experience-refinement-dark.png`. Vite still reports the existing >500kB chunk advisory.
-
-No Rust/request-engine code, schemas, release workflows or product versions were changed. The available prebuilt Rust test adapters were exercised by the HTTP/SQLite and MCP browser workflows. Recompiling native Rust adapters was not possible because the temporary Cargo toolchain is absent; native macOS/Windows packaging and UI acceptance were not performed for this pass.
-
-## 2026-10-18: synchronous request scripts and response chaining
-
-- Added an isolated QuickJS runtime with bounded time, memory, stack, writes and output. Pre-request scripts run before template resolution; post-response scripts finish and commit their variable changes before execution completes.
-- Added request/collection/folder editors, both script phases, opt-in for imported scripts, snippets, basic assertions and per-execution logs/results. Export writes edited request events back to the Postman item and removes internal enable flags.
-- Variable writes merge into the latest workspace under the service write lock. Revision checks and client-side rebasing preserve new script tokens when unrelated UI saves or explicit local variable edits overlap. Frozen environment/collection IDs, phase rollback, staged Secret references and redaction remain in effect.
-- Manual sends and MCP share the runtime. MCP previews have no persistent script effects and cache the prepared request; running uses that frozen request once. MCP script writes are restricted to the authorized collection/environment and cannot modify globals.
-- Validation: frontend build and ESLint; 26 Vitest checks plus 4 version checks; Rust format and Clippy with warnings denied; 58 passing Rust tests (one interactive OS keychain test remains ignored); 78 passing browser regressions, including real Rust HTTP/SQLite chaining, restart, pre/post failure diagnostics and light/dark script editor visibility.
-- The temporary macOS Rust toolchain was restored for this implementation and both test adapters were rebuilt. Windows/native WebView acceptance and new installer packaging were not performed. See [scripts.md](scripts.md) for the exact supported API subset and usage.

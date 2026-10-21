@@ -436,15 +436,15 @@ for (const theme of ["light", "dark"]) {
     await page.getByRole("textbox", { name: "Request body editor" }).click();
     await expect(pane).toHaveCSS("box-shadow", "none");
     await expect(pane).toHaveCSS("border-top-width", "1px");
-    const colors = await pane.evaluate((element) => ({
-      actual: getComputedStyle(element).borderTopColor,
-      expected: getComputedStyle(document.documentElement)
-        .getPropertyValue("--focus")
-        .trim(),
-    }));
-    expect(colors.actual).toBe(
-      theme === "dark" ? "rgb(57, 184, 157)" : "rgb(22, 139, 121)",
-    );
+    const colors = await pane.evaluate((element) => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--focus)";
+      element.append(probe);
+      const expected = getComputedStyle(probe).color;
+      probe.remove();
+      return { actual: getComputedStyle(element).borderTopColor, expected };
+    });
+    expect(colors.actual).toBe(colors.expected);
     await expect(
       pane.getByRole("button", { name: "Find", exact: true }),
     ).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");

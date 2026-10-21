@@ -51,10 +51,21 @@ async fn send_request(
         None => state.service.storage.load()?,
     };
     let context = service::ExecutionContext::from_workspace(&workspace, &request, "manual");
-    state
-        .service
-        .send(workspace, request, execution_id, context)
-        .await
+    state.service.reserve_execution(&execution_id)?;
+    let token = state.service.execution_token(&execution_id)?;
+    let prepared =
+        tokio::task::spawn_blocking(move || scripts::prepare(&workspace, &request, &token))
+            .await
+            .map_err(|e| AppError::new("SCRIPT_ERROR", e))
+            .and_then(|result| result);
+    let prepared = match prepared {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            state.service.forget_execution(&execution_id);
+            return Err(error);
+        }
+    };
+    state.service.execute(prepared, execution_id, context).await
 }
 #[tauri::command]
 fn cancel_request(state: tauri::State<AppState>, execution_id: String) {
@@ -94,7 +105,10 @@ fn import_file(state: tauri::State<AppState>, path: String) -> Result<Workspace>
         .map_err(|_| AppError::new("IMPORT_INVALID_FORMAT", "Cannot read JSON file"))?;
     let value = serde_json::from_str(&text)
         .map_err(|_| AppError::new("IMPORT_INVALID_FORMAT", "Invalid JSON"))?;
-    state.service.import(value)
+    let mut ws = state.service.storage.load()?;
+    postman::import(value, &mut ws)?;
+    state.service.storage.save(&ws)?;
+    Ok(ws)
 }
 #[tauri::command]
 fn export_file(

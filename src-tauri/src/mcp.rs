@@ -439,7 +439,17 @@ impl McpController {
         let mut request = original.clone();
         let environment_name = self.scoped_environment(&mut ws, args, config)?;
         apply_overrides(&mut request, args.get("overrides"))?;
-        let mut prepared = crate::scripts::prepare(&ws, &request)?;
+        let mut prepared = crate::scripts::prepare(&ws, &request, &CancellationToken::new())?;
+        if prepared.scripts.as_ref().is_some_and(|plan| {
+            crate::scripts::changes(plan, &request)
+                .iter()
+                .any(|update| update["scope"] == "global")
+        }) {
+            return Err(error(
+                "SCRIPT_SCOPE_DENIED",
+                "MCP scripts cannot modify workspace global variables",
+            ));
+        }
         for (key, value) in &mut prepared.vars {
             if sensitive_key(key) || security::sensitive_header(key) {
                 value.secret = true;
@@ -468,11 +478,6 @@ impl McpController {
                         secret: true,
                     },
                 );
-            }
-        }
-        if let Some(scripts) = &prepared.scripts {
-            if scripts.before.iter().any(|c| c.scope == "global") {
-                return Err(error("MCP_SCRIPT_GLOBAL_WRITE_DENIED", "MCP scripts cannot write workspace globals; use environment or collection variables"));
             }
         }
         let mut preview = prepared_preview(&prepared);

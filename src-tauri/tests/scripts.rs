@@ -1,211 +1,359 @@
 use local_postman_lib::{
     domain::*,
     http::HttpEngine,
+    postman, scripts,
     service::{ExecutionContext, RequestService},
     storage::Storage,
 };
-use serde_json::json;
-use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-fn request(url: String, code: &str) -> RequestSpec {
+use serde_json::{json, Value};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+};
+use tokio_util::sync::CancellationToken;
+
+fn environment(id: &str) -> Environment {
+    Environment {
+        id: id.into(),
+        name: id.into(),
+        variables: vec![],
+        settings: json!({}),
+        metadata: Value::Null,
+    }
+}
+fn request(url: &str, pre: &str, post: &str) -> RequestSpec {
     RequestSpec {
-        url,
-        metadata: json!({"localpmScriptsEnabled":true,"event":[{"listen":"test","script":{"exec":code}}]}),
+        url: url.into(),
+        metadata: json!({"localpmScripts":{"enabled":true,"preRequest":pre,"postResponse":post}}),
         ..Default::default()
     }
 }
-async fn server(body: &'static str) -> (String, tokio::task::JoinHandle<String>) {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+fn workspace() -> Workspace {
+    Workspace {
+        environments: vec![environment("dev"), environment("prod")],
+        active_environment: Some("dev".into()),
+        ..Default::default()
+    }
+}
+async fn server() -> (String, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.unwrap();
-        let mut buf = vec![0u8; 8192];
-        let n = stream.read(&mut buf).await.unwrap();
-        let response=format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body);
-        stream.write_all(response.as_bytes()).await.unwrap();
-        String::from_utf8_lossy(&buf[..n]).to_string()
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            tokio::spawn(async move {
+                let mut data = vec![0; 8192];
+                let size = socket.read(&mut data).await.unwrap();
+                let header = String::from_utf8_lossy(&data[..size]);
+                let body = if header.contains("/invalid ") {
+                    "not-json".into()
+                } else {
+                    json!({"data":{"token":"new-value-123"},"request":header}).to_string()
+                };
+                let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body);
+                socket.write_all(response.as_bytes()).await.unwrap();
+            });
+        }
     });
-    (format!("http://{address}/"), task)
+    (format!("http://{address}"), task)
 }
-fn service(dir: &std::path::Path) -> RequestService {
-    RequestService::new(
-        Storage::open(&dir.join("test.db")).unwrap(),
-        HttpEngine::new(dir.join("temp")),
-    )
-    .unwrap()
-}
-#[tokio::test]
-async fn response_token_is_committed_before_completion_reused_on_wire_and_survives_restart() {
-    let dir = tempfile::tempdir().unwrap();
-    let service = service(dir.path());
-    let initial = service.save_workspace(Workspace::default()).unwrap();
-    let (url, a) = server(r#"{"data":{"token":"chain-token"}}"#).await;
-    let first=request(url,"pm.globals.set('token',pm.response.json().data.token); pm.test('ok',()=>pm.expect(pm.response.code).to.equal(200));");
-    let response = service
-        .send(
-            initial.clone(),
-            first,
-            "a".into(),
-            ExecutionContext::default(),
+async fn send(service: &RequestService, ws: &Workspace, request: &RequestSpec) -> Result<Response> {
+    let context = ExecutionContext::from_workspace(ws, request, "manual");
+    service
+        .execute(
+            scripts::prepare(ws, request, &CancellationToken::new())?,
+            uuid::Uuid::new_v4().to_string(),
+            context,
         )
         .await
-        .unwrap();
-    a.await.unwrap();
-    assert_eq!(
-        response.scripts.unwrap()["postresponse"]["status"],
-        "passed"
+}
+#[tokio::test]
+async fn two_real_requests_extract_reuse_and_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("db");
+    let service = RequestService::new(
+        Storage::open(&db).unwrap(),
+        HttpEngine::new(dir.path().join("temp")),
+    )
+    .unwrap();
+    let ws = workspace();
+    service.save_workspace(ws.clone()).unwrap();
+    let (url, task) = server().await;
+    let first = request(
+        &format!("{url}/login"),
+        "",
+        r#"const data = pm.response.json(); pm.environment.set("accessToken", data.data.token); pm.test("success", () => pm.response.to.have.status(200)); console.log(data.data.token);"#,
     );
-    let saved = service.storage.load().unwrap();
-    assert_eq!(saved.globals[0].value, "chain-token");
-    assert!(saved.variable_revision > initial.variable_revision);
-    assert_eq!(
-        service.save_workspace(initial).unwrap_err().code,
-        "VARIABLE_REVISION_CONFLICT"
+    let response = send(&service, &ws, &first).await.unwrap();
+    assert!(
+        response.scripts.get("error").is_none(),
+        "{}",
+        response.scripts
     );
-    let (url, b) = server("{}").await;
-    let mut second = RequestSpec {
-        url,
-        ..Default::default()
-    };
+    assert_eq!(response.scripts["tests"][0]["passed"], true);
+    assert!(!response.scripts["logs"]
+        .to_string()
+        .contains("new-value-123"));
+    let mut second = request(&format!("{url}/users"), "", "");
     second.headers.push(Pair {
         key: "Authorization".into(),
-        value: "Bearer {{token}}".into(),
+        value: "Bearer {{accessToken}}".into(),
         ..Default::default()
     });
-    service
-        .send(saved, second, "b".into(), ExecutionContext::default())
-        .await
-        .unwrap();
-    assert!(b
-        .await
-        .unwrap()
-        .to_lowercase()
-        .contains("authorization: bearer chain-token"));
+    let saved = service.storage.load().unwrap();
+    assert!(saved.environments[1].variables.is_empty());
+    let response = send(&service, &saved, &second).await.unwrap();
+    assert!(
+        response.body.contains("Bearer new-value-123"),
+        "{}",
+        response.body
+    );
     drop(service);
-    let reopened = Storage::open(&dir.path().join("test.db")).unwrap();
-    assert_eq!(reopened.load().unwrap().globals[0].value, "chain-token");
-    let record = reopened.execution("a").unwrap().unwrap();
-    assert!(!record.to_string().contains("chain-token"));
-}
-#[tokio::test]
-async fn post_failure_preserves_http_response_rolls_back_variables_and_marks_execution_failed() {
-    let dir = tempfile::tempdir().unwrap();
-    let service = service(dir.path());
-    let ws = service.save_workspace(Workspace::default()).unwrap();
-    let (url, wire) = server("{}").await;
-    let r = request(
-        url,
-        "pm.globals.set('x','partial'); throw new Error('missing data');",
-    );
-    let result = service
-        .send(ws, r, "fail".into(), ExecutionContext::default())
-        .await
-        .unwrap();
-    wire.await.unwrap();
-    assert_eq!(result.status, 200);
-    assert_eq!(result.body, "{}");
-    assert_eq!(result.scripts.unwrap()["postresponse"]["status"], "failed");
-    assert!(service.storage.load().unwrap().globals.is_empty());
+    let restarted = Storage::open(&db).unwrap().load().unwrap();
     assert_eq!(
-        service.storage.execution("fail").unwrap().unwrap()["status"],
-        "failed"
+        restarted.environments[0].variables[0].value,
+        "new-value-123"
     );
+    task.abort();
 }
 #[tokio::test]
-async fn environment_switch_during_send_does_not_redirect_script_writes_or_lose_edits() {
+async fn pre_scripts_prepare_headers_and_local_variables() {
     let dir = tempfile::tempdir().unwrap();
-    let service = Arc::new(service(dir.path()));
-    let mut ws = Workspace::default();
-    for id in ["a", "b"] {
-        ws.environments.push(Environment {
-            id: id.into(),
-            name: id.into(),
-            variables: vec![],
-            settings: json!({}),
-            metadata: json!({}),
-        });
-    }
-    ws.active_environment = Some("a".into());
-    let ws = service.save_workspace(ws).unwrap();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
-    let wire = tokio::spawn(async move {
-        let (mut s, _) = listener.accept().await.unwrap();
-        let mut b = [0; 8192];
-        let received = s.read(&mut b).await.unwrap();
-        assert!(received > 0);
-        ready_tx.send(()).unwrap();
-        release_rx.await.unwrap();
-        s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+    let service = RequestService::new(
+        Storage::open(&dir.path().join("db")).unwrap(),
+        HttpEngine::new(dir.path().join("temp")),
+    )
+    .unwrap();
+    let ws = workspace();
+    service.save_workspace(ws.clone()).unwrap();
+    let (url, task) = server().await;
+    let request = request(
+        &format!("{url}/{{{{path}}}}"),
+        r#"pm.variables.set("path", "echo"); pm.request.headers.upsert({key:"X-Script", value:"ready"}); pm.environment.set("number",42);"#,
+        r#"pm.test("local still exists",()=>pm.expect(pm.variables.get("path")).equal("echo"));"#,
+    );
+    let response = send(&service, &ws, &request).await.unwrap();
+    assert!(response.body.to_lowercase().contains("x-script: ready"));
+    assert!(response.body.contains("/echo"));
+    assert_eq!(response.scripts["tests"][0]["passed"], true);
+    let saved = service.storage.load().unwrap();
+    assert_eq!(saved.environments[0].variables[0].value, "42");
+    assert!(!json!(saved).to_string().contains("\"key\":\"path\""));
+    task.abort();
+}
+#[tokio::test]
+async fn invalid_json_missing_field_and_throw_preserve_response_and_rollback() {
+    let dir = tempfile::tempdir().unwrap();
+    let service = RequestService::new(
+        Storage::open(&dir.path().join("db")).unwrap(),
+        HttpEngine::new(dir.path().join("temp")),
+    )
+    .unwrap();
+    let ws = workspace();
+    service.save_workspace(ws.clone()).unwrap();
+    let (url, task) = server().await;
+    for (path, code) in [
+        ("invalid", "pm.response.json();"),
+        (
+            "login",
+            "pm.environment.set('missing',pm.response.json().missing);",
+        ),
+        (
+            "login",
+            "pm.environment.set('partial','value'); throw new Error('failed');",
+        ),
+    ] {
+        let response = send(&service, &ws, &request(&format!("{url}/{path}"), "", code))
             .await
             .unwrap();
-    });
-    let r = request(
-        format!("http://{address}/"),
-        "pm.environment.set('id','123')",
-    );
-    let context = ExecutionContext::from_workspace(&ws, &r, "manual");
-    let runner = service.clone();
-    let send = tokio::spawn(async move { runner.send(ws, r, "frozen".into(), context).await });
-    ready_rx.await.unwrap();
-    let mut changed = service.storage.load().unwrap();
-    changed.active_environment = Some("b".into());
-    changed.settings["unrelated"] = json!("retained");
-    service.save_workspace(changed).unwrap();
-    release_tx.send(()).unwrap();
-    send.await.unwrap().unwrap();
-    wire.await.unwrap();
-    let saved = service.storage.load().unwrap();
-    assert_eq!(saved.active_environment.as_deref(), Some("b"));
-    assert_eq!(saved.settings["unrelated"], "retained");
-    assert_eq!(saved.environments[0].variables[0].value, "123");
-    assert!(saved.environments[1].variables.is_empty());
+        assert_eq!(response.status, 200);
+        assert_eq!(response.scripts["error"]["code"], "SCRIPT_ERROR");
+        assert!(service.storage.load().unwrap().environments[0]
+            .variables
+            .is_empty());
+    }
+    task.abort();
 }
 #[tokio::test]
-async fn mcp_script_global_writes_are_rejected_and_keep_response() {
+async fn frozen_environment_conflicts_and_stale_saves() {
     let dir = tempfile::tempdir().unwrap();
-    let service = service(dir.path());
-    let ws = service.save_workspace(Workspace::default()).unwrap();
-    let (url, wire) = server("{}").await;
-    let r = request(url, "pm.globals.set('x','forbidden')");
-    let result = service
-        .send(
-            ws,
-            r,
-            "mcp".into(),
-            ExecutionContext {
-                source: "mcp".into(),
-                ..Default::default()
-            },
-        )
+    let service = RequestService::new(
+        Storage::open(&dir.path().join("db")).unwrap(),
+        HttpEngine::new(dir.path().join("temp")),
+    )
+    .unwrap();
+    let ws = workspace();
+    service.save_workspace(ws.clone()).unwrap();
+    let (url, task) = server().await;
+    let request = request(&url, "", "pm.environment.set('result','from-script');");
+    let prepared = scripts::prepare(&ws, &request, &CancellationToken::new()).unwrap();
+    let context = ExecutionContext::from_workspace(&ws, &request, "manual");
+    let mut changed = ws.clone();
+    changed.active_environment = Some("prod".into());
+    changed.environments[0].variables.push(Pair {
+        key: "unrelated".into(),
+        value: "keep".into(),
+        ..Default::default()
+    });
+    service.save_workspace(changed.clone()).unwrap();
+    let response = service
+        .execute(prepared, uuid::Uuid::new_v4().to_string(), context)
         .await
         .unwrap();
-    wire.await.unwrap();
-    assert_eq!(result.scripts.unwrap()["postresponse"]["status"], "failed");
-    assert!(service.storage.load().unwrap().globals.is_empty());
+    assert!(response.scripts.get("error").is_none());
+    // A full save queued before the script finished must not wipe its write.
+    service.save_workspace(changed).unwrap();
+    let saved = service.storage.load().unwrap();
+    assert_eq!(saved.active_environment.as_deref(), Some("prod"));
+    assert_eq!(saved.environments[0].variables.len(), 2);
+    assert!(saved.environments[1].variables.is_empty());
+    let prepared = scripts::prepare(&saved, &request, &CancellationToken::new()).unwrap();
+    let context = ExecutionContext::from_workspace(&saved, &request, "manual");
+    let mut changed = saved.clone();
+    changed.environments[1].variables.push(Pair {
+        key: "result".into(),
+        value: "manual".into(),
+        ..Default::default()
+    });
+    service.save_workspace(changed).unwrap();
+    let response = service
+        .execute(prepared, uuid::Uuid::new_v4().to_string(), context)
+        .await
+        .unwrap();
+    assert_eq!(
+        response.scripts["error"]["code"],
+        "SCRIPT_VARIABLE_CONFLICT"
+    );
+    assert_eq!(
+        service.storage.load().unwrap().environments[1].variables[0].value,
+        "manual"
+    );
+    task.abort();
+}
+#[test]
+fn vm_limits_and_pre_errors() {
+    let ws = workspace();
+    for code in [
+        "throw new Error('stop');",
+        "pm.sendRequest('https://example.test');",
+        "fetch('https://example.test');",
+        "Promise.resolve().then(()=>pm.environment.set('x','value'));",
+        "pm.environment.set('x', 'a'.repeat(65537));",
+    ] {
+        assert!(
+            scripts::prepare(
+                &ws,
+                &request("https://example.test", code, ""),
+                &CancellationToken::new()
+            )
+            .is_err(),
+            "{code}"
+        );
+    }
+    let start = std::time::Instant::now();
+    let result = scripts::prepare(
+        &ws,
+        &request("https://example.test", "while(true) {}", ""),
+        &CancellationToken::new(),
+    );
+    assert_eq!(result.err().unwrap().code, "SCRIPT_TIMEOUT");
+    assert!(start.elapsed().as_secs() < 6);
+    assert!(scripts::prepare(
+        &ws,
+        &request("https://example.test", "pm.variables.set('ok',true);", ""),
+        &CancellationToken::new()
+    )
+    .is_ok());
+}
+#[test]
+fn imported_scripts_require_opt_in_and_export_edited_code() {
+    let mut ws = workspace();
+    let id=postman::import(json!({"info":{"name":"API","schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},"item":[{"name":"Login","event":[{"listen":"test","script":{"exec":["pm.environment.set('x','old');"],"extra":"keep"}},{"listen":"other","script":{"exec":["unknown"]}}],"request":{"method":"GET","url":"https://example.test"}}]}),&mut ws).unwrap();
+    let request = ws.items[0].request.as_ref().unwrap();
+    assert!(!scripts::plan(&ws, request).active());
+    ws.items[0].request.as_mut().unwrap().metadata["localpmScripts"] =
+        json!({"enabled":true,"preRequest":"","postResponse":"pm.environment.set('x','edited');"});
+    let output = postman::export(&ws, &id).unwrap();
+    let events = output["item"][0]["event"].as_array().unwrap();
+    assert!(events.iter().any(|e| e["listen"] == "other"));
+    assert!(events.iter().any(
+        |e| e["script"]["exec"][0] == "pm.environment.set('x','edited');"
+            && e["script"]["extra"] == "keep"
+    ));
+    assert!(output["item"][0]["request"].get("localpmScripts").is_none());
 }
 
-#[tokio::test]
-async fn cancelling_pre_script_stops_execution_without_sending() {
-    let dir = tempfile::tempdir().unwrap();
-    let service = Arc::new(service(dir.path()));
-    let ws = service.save_workspace(Workspace::default()).unwrap();
-    let mut r = request("http://127.0.0.1:1/".into(), "");
-    r.metadata["event"] = json!([{"listen":"prerequest","script":{"exec":"while(true) {}"}}]);
-    let runner = service.clone();
-    let task = tokio::spawn(async move {
-        runner
-            .send(ws, r, "cancel-pre".into(), ExecutionContext::default())
-            .await
+#[test]
+fn imported_internal_flags_cannot_enable_execution() {
+    let mut ws = workspace();
+    let mut input = json!({"info":{"name":"Untrusted","schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},"localpmScripts":{"enabled":true,"preRequest":"throw new Error('untrusted')"},"item":[{"name":"A","localpmScripts":{"enabled":true,"preRequest":"throw new Error('untrusted')"},"event":[{"listen":"prerequest","script":{"exec":["throw new Error('untrusted')"]}}],"request":{"url":"https://example.test","method":"GET","localpmScripts":{"enabled":true,"preRequest":"throw new Error('untrusted')"}}}]});
+    postman::import(input.take(), &mut ws).unwrap();
+    let request = ws.items[0].request.as_ref().unwrap();
+    assert!(!scripts::plan(&ws, request).active());
+}
+#[test]
+fn cancellation_interrupts_script_and_next_execution_recovers() {
+    let token = CancellationToken::new();
+    let cancelled = token.clone();
+    let thread = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        cancelled.cancel();
     });
-    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-    service.cancel("cancel-pre");
-    let result = tokio::time::timeout(std::time::Duration::from_millis(500), task)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(result.unwrap_err().code, "REQUEST_CANCELLED");
-    service.reserve_execution("cancel-pre").unwrap();
+    let start = std::time::Instant::now();
+    let result = scripts::prepare(
+        &workspace(),
+        &request("https://example.test", "while (true) {}", ""),
+        &token,
+    );
+    assert_eq!(result.err().unwrap().code, "REQUEST_CANCELLED");
+    assert!(start.elapsed().as_secs() < 2);
+    thread.join().unwrap();
+    assert!(scripts::prepare(
+        &workspace(),
+        &request("https://example.test", "pm.variables.set('ok',1);", ""),
+        &CancellationToken::new()
+    )
+    .is_ok());
+}
+#[test]
+fn inheritance_order_and_scope_precedence() {
+    let mut ws = workspace();
+    ws.globals.push(Pair {
+        key: "same".into(),
+        value: "global".into(),
+        ..Default::default()
+    });
+    ws.environments[0].variables.push(Pair {
+        key: "same".into(),
+        value: "environment".into(),
+        ..Default::default()
+    });
+    let request=request("https://example.test","pm.test('scopes',()=>{pm.expect(pm.variables.get('same')).equal('local');pm.expect(pm.globals.get('same')).equal('global');});console.log('request');","");
+    ws.collections.push(Collection{id:"c".into(),name:"Collection".into(),auth:Value::Null,variables:vec![],metadata:json!({"localpmScripts":{"enabled":true,"preRequest":"console.log('collection'); pm.variables.set('same','local');"}})});
+    ws.items.push(Item{id:"folder".into(),collection_id:"c".into(),parent_id:None,kind:"folder".into(),name:"Folder".into(),order:0.,auth:Value::Null,request:None,metadata:json!({"event":[{"listen":"prerequest","script":{"exec":["console.log('folder');"]}}]})});
+    ws.items.push(Item {
+        id: "item".into(),
+        collection_id: "c".into(),
+        parent_id: Some("folder".into()),
+        kind: "request".into(),
+        name: request.name.clone(),
+        order: 1.,
+        auth: Value::Null,
+        request: Some(request.clone()),
+        metadata: Value::Null,
+    });
+    let prepared = scripts::prepare(&ws, &request, &CancellationToken::new()).unwrap();
+    let plan = prepared.scripts.unwrap();
+    assert_eq!(
+        plan.report["logs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["message"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["collection", "folder", "request"]
+    );
+    assert_eq!(plan.report["tests"][0]["passed"], true);
 }

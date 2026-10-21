@@ -37,12 +37,7 @@ async function openMore(page: Page) {
 }
 
 async function saveRequest(page: Page) {
-  await page
-    .getByRole("button", {
-      name: process.platform === "darwin" ? "Save ⌘S" : "Save Ctrl+S",
-      exact: true,
-    })
-    .click();
+  await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
   if (await page.getByLabel("Save location", { exact: true }).isVisible()) {
     await page
       .getByLabel("Save location", { exact: true })
@@ -251,7 +246,7 @@ test("editing and switching during slow close preserves the newest draft and cur
   );
 });
 
-test("sending freezes the clicked environment while persistence and UI changes continue", async ({
+test("sending freezes the clicked environment while draft persistence and UI changes continue", async ({
   page,
 }) => {
   let saves = 0;
@@ -259,7 +254,7 @@ test("sending freezes the clicked environment while persistence and UI changes c
   let sentEnvironment: string | null | undefined;
   let sentUrl = "";
   const backend = await openWorkspace(page, {
-    save: () =>
+    draft: () =>
       ++saves === 1
         ? new Promise<void>((resolve) => {
             finishSave = resolve;
@@ -323,7 +318,7 @@ test("a failed close retains the editable tab and allows retry", async ({
   expect(backend.drafts.get("request")?.url).toBe(url);
 });
 
-test("delayed collection autosave preserves a newer environment selection", async ({
+test("draft autosave preserves the collection and the newer environment selection", async ({
   page,
 }) => {
   const backend = await openWorkspace(page);
@@ -331,8 +326,12 @@ test("delayed collection autosave preserves a newer environment selection", asyn
   await page
     .getByLabel("Active environment", { exact: true })
     .selectOption("STAGING");
-  await expect(page.locator(".save-status")).toHaveText("Saved to API");
-  expect(backend.read().items[0].request?.params[0].value).toBe("2");
+  await expect
+    .poll(() => backend.drafts.get("request")?.params[0].value)
+    .toBe("2");
+  await page.waitForTimeout(2300); // The removed collection autosave used to fire after 2 seconds.
+  await expect(page.locator(".save-status")).toHaveText("Unsaved changes");
+  expect(backend.read().items[0].request?.params[0].value).toBe("1");
   expect(backend.read().activeEnvironment).toBe("STAGING");
   await expect(
     page.getByLabel("Active environment", { exact: true }),
@@ -512,14 +511,19 @@ test("switching request tabs restores each request's collection variables and sc
   await expect(
     page.getByLabel("Request URL", { exact: true }),
   ).not.toHaveAttribute("title", /https:\/\/orders\.collection\.test/);
-  await openMore(page);
   await page.getByRole("button", { name: "Scripts", exact: true }).click();
-  await page.getByRole("tab", { name: "Pre-request", exact: true }).click();
+  await page.getByRole("button", { name: "Pre-request", exact: true }).click();
   await expect(
-    page.getByRole("textbox", { name: "Pre-request script", exact: true }),
+    page.getByRole("textbox", {
+      name: "Pre-request script editor",
+      exact: true,
+    }),
   ).toContainText("users-only-script");
   await expect(
-    page.getByRole("textbox", { name: "Pre-request script", exact: true }),
+    page.getByRole("textbox", {
+      name: "Pre-request script editor",
+      exact: true,
+    }),
   ).not.toContainText("orders-only-script");
 
   await tabs
@@ -529,14 +533,19 @@ test("switching request tabs restores each request's collection variables and sc
     "title",
     /https:\/\/orders\.collection\.test/,
   );
-  await openMore(page);
   await page.getByRole("button", { name: "Scripts", exact: true }).click();
-  await page.getByRole("tab", { name: "Pre-request", exact: true }).click();
+  await page.getByRole("button", { name: "Pre-request", exact: true }).click();
   await expect(
-    page.getByRole("textbox", { name: "Pre-request script", exact: true }),
+    page.getByRole("textbox", {
+      name: "Pre-request script editor",
+      exact: true,
+    }),
   ).toContainText("orders-only-script");
   await expect(
-    page.getByRole("textbox", { name: "Pre-request script", exact: true }),
+    page.getByRole("textbox", {
+      name: "Pre-request script editor",
+      exact: true,
+    }),
   ).not.toContainText("users-only-script");
 });
 
@@ -815,14 +824,14 @@ for (const language of ["en-US", "zh-CN"]) {
   });
 }
 
-test("cancelling while persistence is pending prevents the network send", async ({
+test("cancelling while draft persistence is pending prevents the network send", async ({
   page,
 }) => {
   let finishSave: () => void = () => {};
   let saves = 0;
   let sends = 0;
   await openWorkspace(page, {
-    save: () =>
+    draft: () =>
       new Promise<void>((resolve) => {
         saves++;
         finishSave = resolve;
@@ -832,6 +841,9 @@ test("cancelling while persistence is pending prevents the network send", async 
       return response;
     },
   });
+  await page
+    .getByLabel("Request URL", { exact: true })
+    .fill("https://example.test/unsaved-cancel");
   await page.getByRole("button", { name: "Send ↗", exact: true }).click();
   await expect.poll(() => saves).toBe(1);
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -956,6 +968,12 @@ test("saved collection edits and unsaved drafts have quiet, distinct persistence
   const backend = await openWorkspace(page);
   await page.getByLabel("Request name", { exact: true }).fill("Updated users");
   await expect(page.locator(".save-status")).toHaveText("Unsaved changes");
+  await expect
+    .poll(() => backend.drafts.get("request")?.name)
+    .toBe("Updated users");
+  await expect(page.locator(".save-status")).toHaveText("Unsaved changes");
+  expect(backend.read().items[0].request?.name).toBe("Users");
+  await saveRequest(page);
   await expect(page.locator(".save-status")).toHaveText("Saved to API");
   expect(backend.read().items[0].request?.name).toBe("Updated users");
   await expect(page.locator(".toast")).toHaveCount(0);
@@ -1336,12 +1354,7 @@ test("temporary requests send without entering a collection and save only to an 
   await expect(page.locator(".request-location")).toHaveText(
     "Temporary request",
   );
-  await page
-    .getByRole("button", {
-      name: process.platform === "darwin" ? "Save ⌘S" : "Save Ctrl+S",
-      exact: true,
-    })
-    .click();
+  await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
   await expect(page.getByLabel("Save location")).toHaveValue("");
   await expect(
     page.getByRole("button", { name: "Save request", exact: true }),
@@ -1390,12 +1403,7 @@ test("adding within a folder fixes the destination at creation even after resour
     .getByRole("button", { name: "Edit collection Other API", exact: true })
     .click();
   await page.getByRole("button", { name: "Close ×", exact: true }).click();
-  await page
-    .getByRole("button", {
-      name: process.platform === "darwin" ? "Save ⌘S" : "Save Ctrl+S",
-      exact: true,
-    })
-    .click();
+  await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
   await expect
     .poll(
       () =>
@@ -1623,11 +1631,7 @@ test("search disclosure state matches visible children and preserves the saved b
   await openWorkspace(page, { configure: nestUsers });
   await showSidebar(page);
   await page.getByRole("button", { name: "Collapse API", exact: true }).click();
-  const search = page.getByPlaceholder(
-    process.platform === "darwin"
-      ? "Search name or URL  ⌘K"
-      : "Search name or URL  Ctrl+K",
-  );
+  const search = page.getByPlaceholder("Search name or URL  ⌘K");
   await search.fill("users");
   await expect(
     page.getByRole("button", { name: "Collapse API", exact: true }),
@@ -1749,11 +1753,7 @@ test("text toggling in search preserves the normal collection layout", async ({
   await showSidebar(page);
   const collection = page.getByRole("button", { name: "API", exact: true });
   await collection.click();
-  const search = page.getByPlaceholder(
-    process.platform === "darwin"
-      ? "Search name or URL  ⌘K"
-      : "Search name or URL  Ctrl+K",
-  );
+  const search = page.getByPlaceholder("Search name or URL  ⌘K");
   await search.fill("Users");
   await expect(collection).toHaveAttribute("aria-expanded", "true");
   const folder = page.getByRole("button", {
@@ -1776,6 +1776,88 @@ test("text toggling in search preserves the normal collection layout", async ({
   await expect(page.locator(".panel")).toHaveCount(0);
 });
 
+test("Send executes current edits while only explicit Save updates the collection", async ({
+  page,
+}) => {
+  let saves = 0;
+  let sent: RequestSpec | undefined;
+  let sentContext: Workspace | undefined;
+  const backend = await openWorkspace(page, {
+    save: async () => {
+      saves++;
+    },
+    send: async ({ request, workspace }) => {
+      sent = structuredClone(request);
+      sentContext = structuredClone(workspace);
+      return response;
+    },
+  });
+  const url = "https://example.test/draft-only";
+  await page.getByLabel("Request name", { exact: true }).fill("Modified users");
+  await page.getByLabel("Request URL", { exact: true }).fill(url);
+  await page.getByRole("button", { name: "Scripts", exact: true }).click();
+  const script = 'pm.environment.set("fromDraft", "value");';
+  await page
+    .getByRole("textbox", { name: "Post-response script editor", exact: true })
+    .fill(script);
+  await page
+    .getByRole("checkbox", { name: "Run this request's scripts" })
+    .check();
+  await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  await expect.poll(() => sent?.url).toBe(url);
+  expect(sent?.name).toBe("Modified users");
+  expect(sent?.metadata.localpmScripts.postResponse).toBe(script);
+  expect(sentContext?.items[0].request?.name).toBe("Users");
+  await page.waitForTimeout(2300); // Sending must not hide a later collection autosave.
+  expect(saves).toBe(0);
+  expect(backend.read().items[0].request?.name).toBe("Users");
+  expect(backend.read().items[0].request?.metadata).toBeNull();
+  expect(backend.drafts.get("request")?.url).toBe(url);
+  await expect(page.locator(".save-status")).toHaveText("Unsaved changes");
+  await expect(
+    page.getByRole("button", {
+      name: "Request tab: Modified users",
+      exact: true,
+    }),
+  ).toHaveAccessibleDescription("Unsaved changes");
+  await page.reload();
+  await showSidebar(page);
+  await page.getByRole("button", { name: "GET Users", exact: true }).click();
+  await expect(page.getByLabel("Request URL", { exact: true })).toHaveValue(
+    url,
+  );
+  await expect(page.locator(".save-status")).toHaveText("Unsaved changes");
+  await saveRequest(page);
+  expect(saves).toBe(1);
+  expect(backend.read().items[0].request?.url).toBe(url);
+  expect(
+    backend.read().items[0].request?.metadata.localpmScripts.postResponse,
+  ).toBe(script);
+  expect(backend.drafts.has("request")).toBe(false);
+  await expect(page.locator(".save-status")).toHaveText("Saved to API");
+});
+
+test("sending an unchanged saved request does not create a draft or save the workspace", async ({
+  page,
+}) => {
+  let saves = 0;
+  let sends = 0;
+  const backend = await openWorkspace(page, {
+    save: async () => {
+      saves++;
+    },
+    send: async () => {
+      sends++;
+      return response;
+    },
+  });
+  await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  await expect.poll(() => sends).toBe(1);
+  expect(saves).toBe(0);
+  expect(backend.draftWrites).toEqual([]);
+  await expect(page.locator(".save-status")).toHaveText("Saved to API");
+});
+
 test("parameter tables offer a virtual blank row and preserve bulk-pasted data without storing the placeholder", async ({
   page,
 }) => {
@@ -1788,6 +1870,7 @@ test("parameter tables offer a virtual blank row and preserve bulk-pasted data w
   await expect(page.getByLabel("Request URL")).toHaveValue(
     "https://example.test/users?page=1&limit=20",
   );
+  await saveRequest(page);
   await expect
     .poll(() => backend.read().items[0].request!.params.length)
     .toBe(2);
@@ -1809,6 +1892,7 @@ test("parameter tables offer a virtual blank row and preserve bulk-pasted data w
   await expect(page.getByLabel("Request URL")).toHaveValue(
     "https://example.test/users?page=1&limit=20&tag=one&tag=two&empty=&token={{token}}",
   );
+  await saveRequest(page);
   await expect
     .poll(() => backend.read().items[0].request!.params.length)
     .toBe(6);
@@ -1853,6 +1937,7 @@ test("bulk header paste inserts rows without overwriting following headers or ch
   await expect(
     page.getByLabel("Enable row 1", { exact: true }),
   ).not.toBeChecked();
+  await saveRequest(page);
   await expect
     .poll(() => backend.read().items[0].request!.headers.length)
     .toBe(5);

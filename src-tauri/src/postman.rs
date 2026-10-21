@@ -46,7 +46,22 @@ fn export_pairs(ps: &[Pair], original: &Value) -> Value {
             .collect(),
     )
 }
-pub fn import(input: Value, ws: &mut Workspace) -> Result<String> {
+pub fn import(mut input: Value, ws: &mut Workspace) -> Result<String> {
+    // Internal execution consent never comes from an imported file.
+    fn strip_consent(value: &mut Value) {
+        if let Some(object) = value.as_object_mut() {
+            object.remove("localpmScripts");
+        }
+        if let Some(request) = value.get_mut("request").and_then(Value::as_object_mut) {
+            request.remove("localpmScripts");
+        }
+        if let Some(items) = value.get_mut("item").and_then(Value::as_array_mut) {
+            for item in items {
+                strip_consent(item);
+            }
+        }
+    }
+    strip_consent(&mut input);
     if input.get("values").is_some() && input.get("item").is_none() {
         let eid = id();
         ws.environments.push(Environment {
@@ -208,6 +223,10 @@ pub fn export(ws: &Workspace, cid: &str) -> Result<Value> {
         json!("https://schema.getpostman.com/json/collection/v2.1.0/collection.json");
     result["auth"] = export_auth(&c.auth);
     result["variable"] = export_pairs(&c.variables, &c.metadata["variable"]);
+    if c.metadata.get("localpmScripts").is_some() {
+        result["event"] = crate::scripts::export_events(&c.metadata, &c.metadata["event"]);
+    }
+    result.as_object_mut().unwrap().remove("localpmScripts");
     fn children(ws: &Workspace, cid: &str, parent: Option<&str>) -> Value {
         let mut items: Vec<_> = ws
             .items
@@ -224,7 +243,6 @@ pub fn export(ws: &Workspace, cid: &str) -> Result<Value> {
                     } else {
                         json!({})
                     };
-                    v.as_object_mut().unwrap().remove("localpmScriptsEnabled");
                     v["name"] = json!(i.name);
                     if i.kind == "folder" {
                         if i.auth["type"] == "inherit" {
@@ -239,10 +257,6 @@ pub fn export(ws: &Workspace, cid: &str) -> Result<Value> {
                         } else {
                             json!({})
                         };
-                        if let Some(event) = rq.as_object_mut().unwrap().remove("event") {
-                            v["event"] = event;
-                        }
-                        rq.as_object_mut().unwrap().remove("localpmScriptsEnabled");
                         rq["method"] = json!(r.method);
                         if rq["url"].is_object() {
                             rq["url"]["raw"] = json!(r.url);
@@ -265,6 +279,10 @@ pub fn export(ws: &Workspace, cid: &str) -> Result<Value> {
                         } else {
                             rq["body"] = r.body.clone();
                         }
+                        if r.metadata.get("localpmScripts").is_some() {
+                            v["event"] = crate::scripts::export_events(&r.metadata, &v["event"]);
+                        }
+                        rq.as_object_mut().unwrap().remove("localpmScripts");
                         v["request"] = rq;
                     }
                     v
@@ -272,10 +290,6 @@ pub fn export(ws: &Workspace, cid: &str) -> Result<Value> {
                 .collect(),
         )
     }
-    result
-        .as_object_mut()
-        .unwrap()
-        .remove("localpmScriptsEnabled");
     result["item"] = children(ws, cid, None);
     Ok(result)
 }

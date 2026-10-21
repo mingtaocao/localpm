@@ -529,11 +529,10 @@ async fn previews_and_request_details_hide_local_paths_unmarked_tokens_and_url_c
 }
 
 #[tokio::test]
-async fn scripts_preview_has_no_writes_run_uses_frozen_pre_script_and_post_updates_authorized_scope(
-) {
+async fn scripts_preview_is_read_only_and_run_commits_to_the_explicit_environment() {
     let fixture = Fixture::new().await;
-    let mut ws = fixture.service.storage.load().unwrap();
-    let r = ws
+    let mut workspace = fixture.service.storage.load().unwrap();
+    let request = workspace
         .items
         .iter_mut()
         .find(|i| i.id == "item-write")
@@ -541,64 +540,45 @@ async fn scripts_preview_has_no_writes_run_uses_frozen_pre_script_and_post_updat
         .request
         .as_mut()
         .unwrap();
-    r.body["raw"] = json!("{\"counter\":\"{{counter}}\"}");
-    r.metadata = json!({"localpmScriptsEnabled":true,"event":[
-        {"listen":"prerequest","script":{"exec":"pm.environment.set('counter',String(Number(pm.environment.get('counter') || 0)+1));"}},
-        {"listen":"test","script":{"exec":"pm.collectionVariables.set('lastCounter',pm.response.json().body.counter); pm.test('ok',()=>pm.response.to.have.status(200));"}}
-    ]});
-    fixture.service.save_workspace(ws).unwrap();
+    request.metadata = json!({"localpmScripts":{"enabled":true,"preRequest":"pm.environment.set('fromPre', 'prepared'); pm.request.headers.upsert({key:'X-Script',value:'ready'});","postResponse":"pm.environment.set('fromPost', pm.response.json().environment); pm.test('success', () => pm.response.to.have.status(200));"}});
+    fixture.service.save_workspace(workspace).unwrap();
     fixture.enable().await;
     let preview = fixture.preview("request-write").await;
-    let mut ws = fixture.service.storage.load().unwrap();
-    let env = ws
+    let workspace = fixture.service.storage.load().unwrap();
+    assert!(workspace
         .environments
-        .iter_mut()
+        .iter()
+        .all(|e| !e.variables.iter().any(|p| p.key == "fromPre")));
+    let execution = fixture
+        .value("run_request", json!({"previewId":preview["previewId"]}))
+        .await;
+    let done = fixture
+        .done(execution["executionId"].as_str().unwrap())
+        .await;
+    assert_eq!(done["status"], "completed");
+    assert_eq!(done["response"]["scripts"]["tests"][0]["passed"], true);
+    let saved = fixture.service.storage.load().unwrap();
+    assert_eq!(saved.active_environment.as_deref(), Some("active"));
+    let environment = saved
+        .environments
+        .iter()
         .find(|e| e.id == "explicit")
         .unwrap();
-    assert!(!env.variables.iter().any(|p| p.key == "counter"));
-    env.variables.push(Pair {
-        key: "counter".into(),
-        value: "100".into(),
-        ..Default::default()
-    });
-    fixture.service.save_workspace(ws).unwrap();
-    let first = fixture
-        .value("run_request", json!({"previewId":preview["previewId"]}))
-        .await;
-    let done = fixture.done(first["executionId"].as_str().unwrap()).await;
-    assert_eq!(done["status"], "completed");
-    assert_eq!(
-        done["response"]["scripts"]["postresponse"]["tests"][0]["passed"],
-        true
-    );
-    let ws = fixture.service.storage.load().unwrap();
-    assert_eq!(
-        ws.environments
-            .iter()
-            .find(|e| e.id == "explicit")
-            .unwrap()
-            .variables
-            .iter()
-            .find(|p| p.key == "counter")
-            .unwrap()
-            .value,
-        "1"
-    );
-    assert_eq!(
-        ws.collections
-            .iter()
-            .find(|c| c.id == "write")
-            .unwrap()
-            .variables
-            .iter()
-            .find(|p| p.key == "lastCounter")
-            .unwrap()
-            .value,
-        "1"
-    );
-    fixture
-        .value("run_request", json!({"previewId":preview["previewId"]}))
-        .await;
-    assert_eq!(fixture.target.count.load(Ordering::SeqCst), 1);
+    assert!(environment
+        .variables
+        .iter()
+        .any(|p| p.key == "fromPre" && p.value == "prepared"));
+    assert!(environment
+        .variables
+        .iter()
+        .any(|p| p.key == "fromPost" && p.value == "explicit"));
+    assert!(saved
+        .environments
+        .iter()
+        .find(|e| e.id == "active")
+        .unwrap()
+        .variables
+        .iter()
+        .all(|p| p.key != "fromPre" && p.key != "fromPost"));
     fixture.disable().await;
 }

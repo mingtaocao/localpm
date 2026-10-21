@@ -3,230 +3,229 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve, join } from "node:path";
+import { join, resolve } from "node:path";
+import { createServer } from "node:http";
 import type { Workspace, RequestSpec } from "../src/types";
 
-for (const theme of ["light", "dark"])
-  test(`${theme}: Postman-style response script persists globals and the next real request uses them`, async ({
+for (const language of ["en-US", "zh-CN"])
+  test(`two real requests reuse a script variable and survive reload (${language})`, async ({
     page,
   }) => {
-    const data = mkdtempSync(join(tmpdir(), "localpm-scripts-ui-"));
+    const chinese = language === "zh-CN";
+    if (chinese) await page.setViewportSize({ width: 900, height: 640 });
+    let observed: { authorization?: string; body: string } | undefined;
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (data) => (body += data));
+      req.on("end", () => {
+        if (req.url === "/users")
+          observed = { authorization: req.headers.authorization, body };
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({ data: { token: "ui-new-token-123" }, ok: true }),
+        );
+      });
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("No server address");
+    const base = `http://127.0.0.1:${address.port}`;
+    const data = mkdtempSync(join(tmpdir(), "localpm-scripts-"));
     const child = spawn(
-      resolve("src-tauri/target/debug/examples/test_bridge"),
+      resolve(
+        "src-tauri/target/debug/examples/test_bridge" +
+          (process.platform === "win32" ? ".exe" : ""),
+      ),
       [],
       { env: { ...process.env, LOCAL_POSTMAN_DATA_DIR: data } },
     );
-    let id = 0;
+    let counter = 0;
     const pending = new Map<
       number,
       { resolve: (v: any) => void; reject: (e: any) => void }
     >();
-    createInterface({ input: child.stdout }).on("line", (line) => {
+    const lines = createInterface({ input: child.stdout });
+    lines.on("line", (line) => {
       const r = JSON.parse(line);
-      const p = pending.get(r.id);
-      if (!p) return;
+      const callback = pending.get(r.id);
       pending.delete(r.id);
-      if (r.error) p.reject(r.error);
-      else p.resolve(r.value);
+      if (r.error) callback?.reject(r.error);
+      else callback?.resolve(r.value);
     });
-    child.stderr.on("data", (d) => process.stderr.write(d));
-    const call = (cmd: string, args: any = {}) =>
+    child.stderr.on("data", (data) => process.stderr.write(data));
+    const invoke = (cmd: string, args: any = {}) =>
       new Promise<any>((resolve, reject) => {
-        const n = ++id;
-        pending.set(n, { resolve, reject });
-        child.stdin.write(JSON.stringify({ id: n, cmd, args }) + "\n");
+        const id = ++counter;
+        pending.set(id, { resolve, reject });
+        child.stdin.write(JSON.stringify({ id, cmd, args }) + "\n");
       });
-    const request = (id: string, name: string): RequestSpec => ({
-      id,
-      name,
-      method: "GET",
-      url: "http://127.0.0.1:47831/echo",
-      params: [],
-      headers: [],
-      auth: { type: "noauth" },
-      body: { mode: "none" },
-      settings: {},
-      metadata: null,
-    });
-    const login = request("login", "Login");
-    login.headers = [
+    const requests: RequestSpec[] = [
       {
-        key: "X-Token",
-        value: "ui-chain-token",
-        enabled: true,
-        description: "",
+        id: "login",
+        name: "Login",
+        method: "GET",
+        url: base + "/login",
+        params: [],
+        headers: [],
+        auth: { type: "noauth" },
+        body: { mode: "none" },
+        settings: {},
+        metadata: null,
+      },
+      {
+        id: "users",
+        name: "Users",
+        method: "POST",
+        url: base + "/users",
+        params: [],
+        headers: [
+          {
+            key: "Authorization",
+            value: "Bearer {{accessToken}}",
+            enabled: true,
+            description: "",
+          },
+        ],
+        auth: { type: "noauth" },
+        body: {
+          mode: "raw",
+          raw: '{"token":"{{accessToken}}"}',
+          options: { raw: { language: "json" } },
+        },
+        settings: {},
+        metadata: null,
       },
     ];
-    const profile = request("profile", "Profile");
-    profile.auth = { type: "bearer", token: "{{token}}" };
-    const workspace: Workspace = {
+    const ws: Workspace = {
       collections: [
         {
-          id: "c",
-          name: "Script API",
+          id: "api",
+          name: "API",
           auth: { type: "noauth" },
           variables: [],
           metadata: null,
         },
       ],
-      items: [login, profile].map((r, i) => ({
-        id: `item-${r.id}`,
-        collectionId: "c",
+      items: requests.map((request, i) => ({
+        id: request.id,
+        collectionId: "api",
         parentId: null,
         kind: "request",
-        name: r.name,
+        name: request.name,
         order: i,
         auth: { type: "inherit" },
-        request: r,
+        request,
         metadata: null,
       })),
+      environments: [
+        { id: "dev", name: "DEV", variables: [], settings: {}, metadata: null },
+      ],
       globals: [],
-      environments: [],
-      activeEnvironment: null,
-      settings: { language: "en-US", theme, proxy: { mode: "off" } },
+      activeEnvironment: "dev",
+      settings: { language, theme: chinese ? "dark" : "light" },
     };
-    await call("save_workspace", { workspace });
-    await page.exposeBinding("__scriptInvoke", (_, cmd, args) =>
-      call(cmd, args),
-    );
-    await page.addInitScript(() => {
-      (window as any).__TAURI_INTERNALS__ = {
-        invoke: (cmd: string, args: any) =>
-          (window as any).__scriptInvoke(cmd, args),
-      };
-    });
     try {
+      await invoke("save_workspace", { workspace: ws });
+      await page.exposeBinding("__scriptsInvoke", (_, cmd, args) =>
+        invoke(cmd, args),
+      );
+      await page.addInitScript(() => {
+        (window as any).__TAURI_INTERNALS__ = {
+          invoke: (cmd: string, args: any) =>
+            (window as any).__scriptsInvoke(cmd, args),
+        };
+      });
       await page.goto("/");
-      const show = page.getByRole("button", {
-        name: "Show requests",
-        exact: true,
-      });
-      if (await show.count()) await show.click();
       await page
         .getByRole("button", { name: "GET Login", exact: true })
         .click();
       await page
-        .getByRole("button", { name: "More actions", exact: true })
+        .getByRole("button", {
+          name: chinese ? "脚本" : "Scripts",
+          exact: true,
+        })
         .click();
-      await page.getByRole("button", { name: "Scripts", exact: true }).click();
-      const post = page.getByRole("textbox", {
-        name: "Post-response script",
+      const editor = page.getByRole("textbox", {
+        name: chinese ? "响应后脚本编辑器" : "Post-response script editor",
         exact: true,
       });
-      await post.fill(
-        'const data = pm.response.json();\npm.globals.set("token", data.headers["x-token"]);\npm.test("HTTP is OK", () => pm.expect(pm.response.code).to.equal(200));\nconsole.log("token extracted");',
+      await expect(editor).toBeVisible();
+      await editor.fill(
+        'const data = pm.response.json();\npm.environment.set("accessToken", data.data.token);\npm.test("response ok", () => pm.response.to.have.status(200));',
       );
-      await expect(
-        page.getByLabel("Run scripts for this request", { exact: true }),
-      ).toBeChecked();
-      await page.getByRole("tab", { name: "Pre-request", exact: true }).click();
       await page
-        .getByRole("textbox", { name: "Pre-request script", exact: true })
-        .fill('pm.variables.set("timestamp", String(Date.now()));');
+        .getByRole("checkbox", {
+          name: chinese ? "执行此请求的脚本" : "Run this request's scripts",
+        })
+        .check();
       await page
-        .getByRole("tab", { name: "Post-response", exact: true })
+        .getByRole("button", {
+          name: chinese ? "发送 ↗" : "Send ↗",
+          exact: true,
+        })
         .click();
-      await expect(post).toContainText("pm.globals.set");
-      await page.getByRole("button", { name: "Send ↗", exact: true }).click();
-      await expect(page.locator(".script-results").first()).toContainText(
-        "Post-response: Completed",
-      );
-      await expect
-        .poll(
-          async () =>
-            (await call("app_bootstrap")).workspace.globals.find(
-              (p: any) => p.key === "token",
-            )?.value,
-        )
-        .toBe("ui-chain-token");
-      await page.locator(".script-results").first().locator("summary").click();
-      await expect(page.locator(".script-results").first()).toContainText(
-        "HTTP is OK",
-      );
-      const codeRect = await post.boundingBox();
-      const paneRect = await page.locator(".request-editor").boundingBox();
-      expect(
-        codeRect &&
-          paneRect &&
-          Math.min(codeRect.y + codeRect.height, paneRect.y + paneRect.height) -
-            codeRect.y,
-      ).toBeGreaterThan(90);
-      await page.screenshot({ path: `artifacts/scripts-${theme}.png` });
-      await page
-        .getByRole("button", { name: "GET Profile", exact: true })
-        .click();
-      await page.getByRole("button", { name: "Send ↗", exact: true }).click();
       await expect(
-        page.getByRole("textbox", {
-          name: "Response body editor",
+        page.getByLabel(chinese ? "脚本结果" : "Script results", {
           exact: true,
         }),
-      ).toContainText("Bearer ui-chain-token");
+      ).toContainText("accessToken");
+      await page.screenshot({ path: `artifacts/scripts-${language}.png` });
+      await page
+        .getByRole("button", { name: "POST Users", exact: true })
+        .click();
+      await page
+        .getByRole("button", {
+          name: chinese ? "发送 ↗" : "Send ↗",
+          exact: true,
+        })
+        .click();
+      await expect
+        .poll(() => observed)
+        .toEqual({
+          authorization: "Bearer ui-new-token-123",
+          body: '{"token":"ui-new-token-123"}',
+        });
       await page.reload();
-      await expect
-        .poll(
-          async () => (await call("app_bootstrap")).workspace.globals[0]?.value,
-        )
-        .toBe("ui-chain-token");
       await page
         .getByRole("button", { name: "GET Login", exact: true })
         .click();
       await page
-        .getByRole("button", { name: "More actions", exact: true })
+        .getByRole("button", {
+          name: chinese ? "脚本" : "Scripts",
+          exact: true,
+        })
         .click();
-      await page.getByRole("button", { name: "Scripts", exact: true }).click();
+      await expect(editor).toContainText(
+        'pm.environment.set("accessToken", data.data.token)',
+      );
       await expect(
-        page.getByRole("textbox", {
-          name: "Post-response script",
-          exact: true,
+        page.getByRole("checkbox", {
+          name: chinese ? "执行此请求的脚本" : "Run this request's scripts",
         }),
-      ).toContainText("pm.globals.set");
+      ).toBeChecked();
+      // A post-script error keeps the HTTP response and reports the missing field explicitly.
+      await editor.fill(
+        'pm.environment.set("accessToken", pm.response.json().missing);',
+      );
       await page
-        .getByRole("textbox", { name: "Post-response script", exact: true })
-        .fill(
-          'pm.globals.set("partial", "discard");\nthrow new Error("Missing expected token");',
-        );
-      await page.getByRole("button", { name: "Send ↗", exact: true }).click();
-      await expect(page.locator(".script-results").first()).toContainText(
-        "Post-response: Failed",
-      );
-      await expect(page.locator(".script-results").first()).toContainText(
-        "Missing expected token",
+        .getByRole("button", {
+          name: chinese ? "发送 ↗" : "Send ↗",
+          exact: true,
+        })
+        .click();
+      await expect(page.getByRole("alert")).toContainText(
+        chinese ? "脚本执行失败" : "Script failed",
       );
       await expect(
         page.getByRole("textbox", {
-          name: "Response body editor",
+          name: chinese ? "响应正文编辑器" : "Response body editor",
           exact: true,
         }),
-      ).toContainText("x-token");
-      expect(
-        (await call("app_bootstrap")).workspace.globals.some(
-          (p: any) => p.key === "partial",
-        ),
-      ).toBe(false);
-      await page.getByRole("tab", { name: "Pre-request", exact: true }).click();
-      await page
-        .getByRole("textbox", { name: "Pre-request script", exact: true })
-        .fill(
-          'console.log("pre diagnostic");\nthrow new Error("Stop before HTTP");',
-        );
-      await page.getByRole("button", { name: "Send ↗", exact: true }).click();
-      await expect(page.locator(".script-results").first()).toContainText(
-        "Pre-request: Failed",
-      );
-      await expect(page.locator(".script-results").first()).toContainText(
-        "pre diagnostic",
-      );
-      await expect(page.locator(".script-results").first()).toContainText(
-        "Stop before HTTP",
-      );
-      await expect(
-        page.getByRole("textbox", {
-          name: "Response body editor",
-          exact: true,
-        }),
-      ).toContainText("x-token");
+      ).toContainText("ui-new-token-123");
     } finally {
       child.kill();
+      lines.close();
+      await new Promise<void>((done) => server.close(() => done()));
     }
   });

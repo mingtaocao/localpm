@@ -29,13 +29,11 @@ describe("workspace script synchronization", () => {
       .mockRejectedValueOnce({ code: "VARIABLE_REVISION_CONFLICT" })
       .mockImplementationOnce(async (w) => ({ ...w, variableRevision: 2 }));
     api.bootstrap.mockResolvedValue({ workspace: latest });
-    await useWorkspace
-      .getState()
-      .persist({
-        ...base,
-        globals: [...base.globals, row("manual", "edited")],
-        settings: { timeout: 123 },
-      });
+    await useWorkspace.getState().persist({
+      ...base,
+      globals: [...base.globals, row("manual", "edited")],
+      settings: { timeout: 123 },
+    });
     expect(api.saveWorkspace.mock.calls[1][0].globals).toEqual([
       row("token", "script-token"),
       row("manual", "edited"),
@@ -69,6 +67,47 @@ describe("workspace script synchronization", () => {
     expect(useWorkspace.getState().workspace?.globals).toEqual([
       row("token", "updated"),
       row("draft", "local"),
+    ]);
+    expect(useWorkspace.getState().workspace?.activeEnvironment).toBe("chosen");
+  });
+  it("retains script events across an in-flight save and the next workspace edit", async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    api.saveWorkspace
+      .mockImplementationOnce(async (workspace) => {
+        started();
+        await pending;
+        return workspace;
+      })
+      .mockImplementation(async (workspace) => workspace);
+    const saving = useWorkspace
+      .getState()
+      .persist({ ...initial(), settings: { timeout: 123 } });
+    await ready;
+    useWorkspace.getState().applyScriptUpdates([
+      {
+        scope: "global",
+        id: null,
+        key: "token",
+        pair: row("token", "fresh-script-token"),
+        revision: 1,
+      },
+    ]);
+    release();
+    await saving;
+    const current = useWorkspace.getState().workspace!;
+    expect(current.globals).toEqual([row("token", "fresh-script-token")]);
+    await useWorkspace
+      .getState()
+      .persist({ ...current, activeEnvironment: "chosen" });
+    expect(api.saveWorkspace.mock.calls[1][0].globals).toEqual([
+      row("token", "fresh-script-token"),
     ]);
     expect(useWorkspace.getState().workspace?.activeEnvironment).toBe("chosen");
   });
