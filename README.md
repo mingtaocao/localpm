@@ -14,10 +14,21 @@
 - Off / System / Manual HTTP(S) Proxy、认证、通配 No Proxy、请求/环境/全局覆盖。
 - Cookie jar、TLS 校验警告、自定义 CA、重定向、超时与取消、复用连接池。
 - Collection/Folder/Request 创建、重命名、复制、删除、拖放、树虚拟列表和搜索。
-- 多标签、500ms Draft、已有请求 2s 自动保存、History、每日 SQLite 备份（最近 7 份）。
+- 多标签（固定新建入口、溢出滚动、当前标签自动定位、按名称/方法/URL 搜索已打开请求）、500ms Draft、已有请求 2s 自动保存、History、每日 SQLite 备份（最近 7 份）。
 - Postman Collection v2.1 / Environment 导入导出；保留未知字段、禁用行和 Scripts；支持沙箱请求前/响应后脚本、响应取值与变量串联，详见[脚本用法](docs/scripts.md)。
 - 响应 Pretty/Raw/沙箱 HTML Preview、Headers/Cookies、复制/筛选和 Save as；超过 20MB 的响应只保存文件，不向 UI 传递全文。
 - 本地 MCP 服务：按集合与环境授权 AI 读取、预览、发送已保存请求；后台执行、取消和独立结果历史。
+
+## 请求切换
+
+标签栏右侧的下拉按钮显示当前打开的请求数量，点击可搜索请求名称、HTTP 方法或 URL。列表同时显示 URL，便于区分同名请求；圆点表示未保存修改，勾号表示当前请求。点击结果或使用 ↑ / ↓、Enter 切换，Esc 关闭并返回原来的输入位置。
+
+- `⌘P` / `Ctrl+P`：搜索已打开请求。
+- `⌘` / `Ctrl` + `PageUp`、`PageDown`：循环切换上一个、下一个请求。
+- 标签按钮获得焦点时，可使用 ← / →、Home、End 切换。
+- `⌘N` / `Ctrl+N` 新建临时请求；集合请求关闭后可从集合重新打开，未保存草稿仍会恢复。
+
+标签过多时可用两侧箭头或触控板横向滚动，“新建请求”和请求搜索始终留在右侧。切换请求或调整侧栏宽度时，当前标签会自动进入可见区域。
 
 ## AI 接入（MCP）
 

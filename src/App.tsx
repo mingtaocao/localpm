@@ -48,6 +48,7 @@ import { Icon } from "./components/Icon";
 import { ScriptsEditor } from "./components/ScriptsEditor";
 import { ScriptResults, scriptErrorReport } from "./components/ScriptResults";
 import { MethodSelect } from "./components/MethodSelect";
+import { RequestTabs } from "./components/RequestTabs";
 import { MoreMenu } from "./components/MoreMenu";
 import { readLayout, saveLayout, layoutNumber } from "./stores/layout";
 import { AnimatedCounter } from "./components/rare-ui/animated-counter";
@@ -1273,56 +1274,13 @@ export default function App() {
             className={`workspace-body ${resizingEditor ? "resizing-editor" : ""}`}
             ref={mainRef}
           >
-            <div className="request-tabs" aria-label={tr("Open requests")}>
-              {tabs.map((t) => (
-                <div
-                  key={t.request.id}
-                  className={active === t.request.id ? "tab active" : "tab"}
-                >
-                  <button
-                    title={t.request.name}
-                    aria-label={tr("Request tab: %{name}", {
-                      name: t.request.name,
-                    })}
-                    aria-describedby={
-                      t.dirty ? `request-unsaved-${t.request.id}` : undefined
-                    }
-                    onClick={() => activateRequest(t.request.id)}
-                  >
-                    <span className="method" data-method={t.request.method}>
-                      {t.request.method}
-                    </span>{" "}
-                    <span className="tab-name">{t.request.name}</span>
-                    {t.dirty && (
-                      <span
-                        className="tab-dirty-indicator"
-                        id={`request-unsaved-${t.request.id}`}
-                        title={tr("Unsaved changes")}
-                      >
-                        <span className="rare-sr-only">
-                          {tr("Unsaved changes")}
-                        </span>
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    title={tr("Close tab (draft retained)")}
-                    onClick={() => void closeTab(t.request.id).catch(fail)}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-              <button
-                className="new-request-tab"
-                aria-label={tr("New request")}
-                title={tr("New temporary request")}
-                onClick={newTab}
-              >
-                <Icon name="plus" />
-                <span>{tr("New request")}</span>
-              </button>
-            </div>
+            <RequestTabs
+              tabs={tabs}
+              active={active}
+              onActivate={activateRequest}
+              onClose={(id) => void closeTab(id).catch(fail)}
+              onNew={newTab}
+            />
             {modal === "Execution" && viewedExecution ? (
               <McpExecutionPanel
                 key={viewedExecution.id}
@@ -2575,14 +2533,34 @@ export default function App() {
                       <p>{tr("Waiting for this request's response.")}</p>
                     </div>
                   ) : !tab?.error ? (
-                    <div className="response-empty">
-                      <p>{tr("Your response will appear here")}</p>
+                    <div className="response-empty response-welcome">
+                      <span
+                        className="response-welcome-icon"
+                        aria-hidden="true"
+                      >
+                        ↗
+                      </span>
+                      <h3>{tr("Your response will appear here")}</h3>
+                      <p>
+                        {tr(
+                          "Enter a URL and select Send to inspect the response.",
+                        )}
+                      </p>
+                      <small>
+                        {tr("Send request")}{" "}
+                        <kbd>{platformShortcut("Enter")}</kbd>
+                      </small>
                     </div>
                   ) : null}
                 </section>
               </>
             ) : (
               <div className="empty-workspace">
+                <span className="response-welcome-icon" aria-hidden="true">
+                  <Icon name="plus" />
+                </span>
+                <h2>{tr("Start a request")}</h2>
+                <p>{tr("Create a request or open one from Collections.")}</p>
                 <button className="primary" onClick={newTab}>
                   {tr("＋ New request")}
                 </button>
