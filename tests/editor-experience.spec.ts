@@ -189,6 +189,10 @@ test("request switches restore caret, folds and undo history; theme change prese
   await editor.click();
   await editor.press(`${modifier}+End`);
   await editor.press(" ");
+  await page
+    .locator(".request-editor")
+    .getByRole("button", { name: "Editor actions", exact: true })
+    .click();
   await page.getByRole("button", { name: "Fold all", exact: true }).click();
   await expect(
     page.locator(".request-editor .cm-foldPlaceholder"),
@@ -211,6 +215,10 @@ test("request switches restore caret, folds and undo history; theme change prese
   await expect(
     page.locator(".request-editor .cm-foldPlaceholder"),
   ).not.toHaveCount(0);
+  await page
+    .locator(".request-editor")
+    .getByRole("button", { name: "Editor actions", exact: true })
+    .click();
   await page.getByRole("button", { name: "Unfold all", exact: true }).click();
   await editor.press(`${modifier}+z`);
   await expect.poll(() => editor.innerText()).toBe(formatted);
@@ -268,9 +276,11 @@ test("search, wrapping and font controls stay usable in a small workspace", asyn
   await expect(pane.locator(".cm-searchMatch")).not.toHaveCount(0);
   await pane.getByRole("button", { name: "Word wrap", exact: true }).click();
   await expect(pane.locator(".cm-content")).toHaveClass(/cm-lineWrapping/);
-  await pane
+  await page.getByRole("button", { name: "⚙ Settings", exact: true }).click();
+  await page
     .getByRole("combobox", { name: "Editor font size", exact: true })
     .selectOption("18");
+  await page.getByRole("button", { name: "Close ×", exact: true }).click();
   await expect(pane.locator(".cm-editor")).toHaveCSS("font-size", "18px");
   await expect(
     page.getByRole("button", { name: "Send ↗", exact: true }),
@@ -376,5 +386,73 @@ for (const theme of ["light", "dark"]) {
       await url.focus();
       await expect(selection).toHaveCSS("background-color", colors.selection);
     }
+  });
+}
+
+test("editor toolbars stay compact while folding and shared font settings remain accessible", async ({
+  page,
+}) => {
+  await openEditors(page);
+  const pane = page.locator(".request-editor .code-editor");
+  await expect(
+    pane.getByRole("combobox", { name: "Editor font size" }),
+  ).toHaveCount(0);
+  await expect(
+    pane.getByRole("button", { name: "Fold all", exact: true }),
+  ).toBeHidden();
+  await expect(
+    pane.getByRole("button", { name: "Find", exact: true }),
+  ).toBeVisible();
+  await pane.getByRole("button", { name: "Format JSON", exact: true }).click();
+  await pane
+    .getByRole("button", { name: "Editor actions", exact: true })
+    .click();
+  await pane.getByRole("button", { name: "Fold all", exact: true }).click();
+  await expect(pane.locator(".cm-foldPlaceholder")).not.toHaveCount(0);
+  await page.getByRole("button", { name: "⚙ Settings", exact: true }).click();
+  await page.getByLabel("Editor font size", { exact: true }).selectOption("16");
+  await page.getByRole("button", { name: "Close ×", exact: true }).click();
+  await expect(pane.locator(".cm-editor")).toHaveCSS("font-size", "16px");
+  await expect(pane.locator(".cm-foldPlaceholder")).not.toHaveCount(0);
+  await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  await expect(page.locator(".response .cm-editor")).toHaveCSS(
+    "font-size",
+    "16px",
+  );
+  await expect(
+    page.locator(".code-editor-toolbar .code-editor-font"),
+  ).toHaveCount(0);
+  await page.reload();
+  await page.getByRole("button", { name: "Body", exact: true }).click();
+  await expect(pane.locator(".cm-editor")).toHaveCSS("font-size", "16px");
+});
+
+for (const theme of ["light", "dark"]) {
+  test(`${theme}: editor focus uses a single border and auxiliary actions are quiet`, async ({
+    page,
+  }) => {
+    await openEditors(page, theme);
+    const pane = page.locator(".request-editor .code-editor");
+    await page.getByRole("textbox", { name: "Request body editor" }).click();
+    await expect(pane).toHaveCSS("box-shadow", "none");
+    await expect(pane).toHaveCSS("border-top-width", "1px");
+    const colors = await pane.evaluate((element) => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--focus)";
+      element.append(probe);
+      const expected = getComputedStyle(probe).color;
+      probe.remove();
+      return { actual: getComputedStyle(element).borderTopColor, expected };
+    });
+    expect(colors.actual).toBe(colors.expected);
+    await expect(
+      pane.getByRole("button", { name: "Find", exact: true }),
+    ).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+    await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+    const recoveredNotice = page.locator(".toast:not(.error)");
+    if (await recoveredNotice.count()) await recoveredNotice.click();
+    await page.screenshot({
+      path: `artifacts/experience-refinement-${theme}.png`,
+    });
   });
 }

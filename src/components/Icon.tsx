@@ -4,12 +4,14 @@ type IconName =
   | "plus"
   | "settings"
   | "more"
+  | "check"
   | "copy"
   | "close"
   | "search"
   | "sun"
   | "moon"
   | "chevron-up"
+  | "chevron-left"
   | "chevron-right"
   | "chevron-down";
 export function Icon({ name }: { name: IconName }) {
@@ -35,6 +37,7 @@ export function Icon({ name }: { name: IconName }) {
         <circle cx="19" cy="12" r="1" />
       </>
     ),
+    check: <path d="m5 12 4 4L19 6" />,
     copy: (
       <>
         <rect x="8" y="8" width="12" height="12" rx="2" />
@@ -54,6 +57,7 @@ export function Icon({ name }: { name: IconName }) {
       </>
     ),
     "chevron-up": <path d="m6 15 6-6 6 6" />,
+    "chevron-left": <path d="m15 6-6 6 6 6" />,
     "chevron-right": <path d="m9 6 6 6-6 6" />,
     "chevron-down": <path d="m6 9 6 6 6-6" />,
     moon: <path d="M20 15.5A8.5 8.5 0 0 1 8.5 4a8.5 8.5 0 1 0 11.5 11.5Z" />,

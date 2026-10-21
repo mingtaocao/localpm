@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useCopyFeedback } from "../hooks/useCopyFeedback";
 import { api } from "../services/tauriApi";
 import type { McpConfig, McpStatus, Workspace } from "../types";
 
 type Props = {
   workspace: Workspace;
   onError: (error: unknown) => void;
-  onNotice: (message: string) => void;
 };
 
-export function McpSettings({ workspace, onError, onNotice }: Props) {
+export function McpSettings({ workspace, onError }: Props) {
   const { t: tr } = useTranslation();
+  const { copied, copy } = useCopyFeedback();
   const [status, setStatus] = useState<McpStatus | null>(null);
   const [config, setConfig] = useState<McpConfig | null>(null);
   const [loading, setLoading] = useState(true);
@@ -94,8 +95,7 @@ export function McpSettings({ workspace, onError, onNotice }: Props) {
     try {
       const connection = await api.mcpConnectionConfig();
       if (!connection) throw tr("AI access is unavailable.");
-      await navigator.clipboard.writeText(JSON.stringify(connection, null, 2));
-      onNotice(tr("Connection configuration copied"));
+      await copy(JSON.stringify(connection, null, 2), "connection");
     } catch (error) {
       await refreshAfterFailure();
       onError(error);
@@ -167,8 +167,14 @@ export function McpSettings({ workspace, onError, onNotice }: Props) {
             </button>
           )}
           {status?.running && (
-            <button disabled={busy} onClick={() => void copyConnection()}>
-              {tr("Copy connection configuration")}
+            <button
+              aria-label={tr("Copy connection configuration")}
+              disabled={busy}
+              onClick={() => void copyConnection()}
+            >
+              {copied === "connection"
+                ? tr("Copied")
+                : tr("Copy connection configuration")}
             </button>
           )}
           {dirty && (

@@ -122,7 +122,11 @@ test("theme and language persist through Rust/SQLite restart without translating
   await page
     .locator(".request-editor .cm-content")
     .fill('{"message":"English 中文","Header":"Keep"}');
-  await page.getByRole("button", { name: "保存 ⌘S" }).click();
+  await page
+    .getByRole("button", {
+      name: process.platform === "darwin" ? "保存 ⌘S" : "保存 Ctrl+S",
+    })
+    .click();
   await page.getByLabel("保存位置").selectOption({ index: 1 });
   await page.getByRole("button", { name: "保存请求", exact: true }).click();
   await page.getByRole("button", { name: "发送 ↗" }).click();

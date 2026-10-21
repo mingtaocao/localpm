@@ -1,3 +1,6 @@
+import { useEditorPreferences } from "./stores/editorPreferences";
+import { platformShortcut } from "./utils/shortcuts";
+import { useCopyFeedback } from "./hooks/useCopyFeedback";
 import { ScriptEditor } from "./components/scripts/ScriptEditor";
 import { ScriptResults } from "./components/scripts/ScriptResults";
 import {
@@ -51,6 +54,7 @@ import {
 import { requestToCurl } from "./utils/curl";
 import { Icon } from "./components/Icon";
 import { MethodSelect } from "./components/MethodSelect";
+import { RequestTabs } from "./components/RequestTabs";
 import { MoreMenu } from "./components/MoreMenu";
 import { readLayout, saveLayout, layoutNumber } from "./stores/layout";
 import { AnimatedCounter } from "./components/rare-ui/animated-counter";
@@ -67,6 +71,8 @@ function clampSidebarWidth(width: number) {
 export default function App() {
   const { t: tr } = useTranslation();
   const { theme, language, resolvedTheme } = usePreferences();
+  const { fontSize, setFontSize } = useEditorPreferences();
+  const { copied, copy } = useCopyFeedback();
   const {
     workspace: w,
     set: setWorkspace,
@@ -195,6 +201,7 @@ export default function App() {
               : record.error
                 ? "error"
                 : "complete",
+          scripts: result?.scripts,
           status: result?.status,
           statusText: result?.statusText,
           duration: result?.duration,
@@ -696,6 +703,7 @@ export default function App() {
             ? {
                 ...entry,
                 phase: "complete",
+                scripts: result.scripts,
                 status: result.status,
                 statusText: result.statusText,
                 duration: result.duration,
@@ -1115,7 +1123,9 @@ export default function App() {
             hidden={section !== "Collections"}
             className="search"
             ref={searchRef}
-            placeholder={tr("Search name or URL  ⌘K")}
+            placeholder={tr("Search name or URL  %{shortcut}", {
+              shortcut: platformShortcut("K"),
+            })}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -1267,62 +1277,13 @@ export default function App() {
             className={`workspace-body ${resizingEditor ? "resizing-editor" : ""}`}
             ref={mainRef}
           >
-            <div className="request-tabs" aria-label={tr("Open requests")}>
-              {tabs.map((t) => (
-                <div
-                  key={t.request.id}
-                  className={`tab${active === t.request.id ? " active" : ""}${t.dirty ? " is-dirty" : ""}`}
-                >
-                  <button
-                    title={t.request.name}
-                    aria-current={active === t.request.id ? "page" : undefined}
-                    aria-label={tr("Request tab: %{name}", {
-                      name: t.request.name,
-                    })}
-                    aria-describedby={
-                      t.dirty ? `request-unsaved-${t.request.id}` : undefined
-                    }
-                    onClick={() => activateRequest(t.request.id)}
-                  >
-                    <span className="method" data-method={t.request.method}>
-                      {t.request.method}
-                    </span>{" "}
-                    <span className="tab-name">{t.request.name}</span>
-                  </button>
-                  <button
-                    className="tab-close"
-                    aria-label={tr("Close tab (draft retained)")}
-                    title={tr("Close tab (draft retained)")}
-                    onClick={() => void closeTab(t.request.id).catch(fail)}
-                  >
-                    <Icon name="close" />
-                    {t.dirty && (
-                      <>
-                        <span
-                          className="tab-dirty-indicator"
-                          aria-hidden="true"
-                        />
-                        <span
-                          className="rare-sr-only"
-                          id={`request-unsaved-${t.request.id}`}
-                        >
-                          {tr("Unsaved changes")}
-                        </span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              ))}
-              <button
-                className="new-request-tab"
-                aria-label={tr("New request")}
-                title={tr("New temporary request")}
-                onClick={newTab}
-              >
-                <Icon name="plus" />
-                <span>{tr("New request")}</span>
-              </button>
-            </div>
+            <RequestTabs
+              tabs={tabs}
+              active={active}
+              onActivate={activateRequest}
+              onClose={(id) => void closeTab(id).catch(fail)}
+              onNew={newTab}
+            />
             {modal === "Execution" && viewedExecution ? (
               <McpExecutionPanel
                 key={viewedExecution.id}
@@ -1467,12 +1428,24 @@ export default function App() {
                           <option value="zh-CN">{tr("简体中文")}</option>
                         </select>
                       </label>
+                      <label>
+                        {tr("Editor font size")}
+                        <select
+                          aria-label={tr("Editor font size")}
+                          value={fontSize}
+                          onChange={(event) =>
+                            setFontSize(Number(event.target.value))
+                          }
+                        >
+                          {[12, 13, 14, 15, 16, 18, 20].map((size) => (
+                            <option key={size} value={size}>
+                              {size}px
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     </div>
-                    <McpSettings
-                      workspace={w}
-                      onError={fail}
-                      onNotice={setNotice}
-                    />
+                    <McpSettings workspace={w} onError={fail} />
                     <button
                       onClick={() =>
                         void api
@@ -1728,7 +1701,9 @@ export default function App() {
                         : tr("Temporary request")}
                     </span>
                     <button onClick={() => void save().catch(fail)}>
-                      {tr("Save ⌘S")}
+                      {tr("Save %{shortcut}", {
+                        shortcut: platformShortcut("S"),
+                      })}
                     </button>
                   </div>
                   <div className="url-bar">
@@ -1881,13 +1856,17 @@ export default function App() {
                       >
                         <Icon name={editor ? "chevron-up" : "chevron-down"} />
                       </button>
+                      {copied === `${r.id}:curl` && (
+                        <span className="copy-feedback" role="status">
+                          {tr("cURL copied.")}
+                        </span>
+                      )}
                       <MoreMenu label={tr("More actions")}>
                         <button
                           onClick={() =>
-                            void navigator.clipboard
-                              .writeText(requestToCurl(r))
-                              .then(() => setNotice("cURL copied."))
-                              .catch(fail)
+                            void copy(requestToCurl(r), `${r.id}:curl`).catch(
+                              fail,
+                            )
                           }
                         >
                           {tr("Copy cURL")}
@@ -1946,6 +1925,7 @@ export default function App() {
                     )}
                     {editor === "Params" && (
                       <KeyValue
+                        pasteMode="params"
                         rows={r.params}
                         onChange={(params) =>
                           edit({ params, url: urlFromParams(r.url, params) })
@@ -1955,6 +1935,7 @@ export default function App() {
                     {editor === "Headers" && (
                       <>
                         <KeyValue
+                          pasteMode="headers"
                           rows={r.headers}
                           onChange={(headers) => edit({ headers })}
                         />
@@ -2398,25 +2379,32 @@ export default function App() {
                             aria-label={tr("Copy response")}
                             title={tr("Copy response")}
                             onClick={() =>
-                              void navigator.clipboard
-                                .writeText(
-                                  ["Headers", "Cookies"].includes(responseTab)
-                                    ? tab
-                                        .response!.headers.filter(
-                                          ([key]) =>
-                                            responseTab !== "Cookies" ||
-                                            key.toLowerCase() === "set-cookie",
-                                        )
-                                        .map((header) => header.join(": "))
-                                        .join("\n")
-                                    : responseBody,
-                                )
-                                .then(() => setNotice("Response copied."))
-                                .catch(fail)
+                              void copy(
+                                ["Headers", "Cookies"].includes(responseTab)
+                                  ? tab
+                                      .response!.headers.filter(
+                                        ([key]) =>
+                                          responseTab !== "Cookies" ||
+                                          key.toLowerCase() === "set-cookie",
+                                      )
+                                      .map((header) => header.join(": "))
+                                      .join("\n")
+                                  : responseBody,
+                                `${r.id}:response`,
+                              ).catch(fail)
                             }
                           >
-                            <Icon name="copy" />
+                            <Icon
+                              name={
+                                copied === `${r.id}:response` ? "check" : "copy"
+                              }
+                            />
                           </button>
+                          {copied === `${r.id}:response` && (
+                            <span className="copy-feedback" role="status">
+                              {tr("Copied")}
+                            </span>
+                          )}
                           <MoreMenu label={tr("Response actions")}>
                             <button onClick={() => setResponseTab("Cookies")}>
                               {tr("Cookies")}
@@ -2508,12 +2496,14 @@ export default function App() {
                                 <span>{v}</span>
                                 <button
                                   onClick={() =>
-                                    void navigator.clipboard
-                                      .writeText(v)
-                                      .catch(fail)
+                                    void copy(v, `${r.id}:header:${i}`).catch(
+                                      fail,
+                                    )
                                   }
                                 >
-                                  {tr("Copy")}
+                                  {copied === `${r.id}:header:${i}`
+                                    ? tr("Copied")
+                                    : tr("Copy")}
                                 </button>
                               </div>
                             ))}
@@ -2555,14 +2545,34 @@ export default function App() {
                       <p>{tr("Waiting for this request's response.")}</p>
                     </div>
                   ) : !tab?.error ? (
-                    <div className="response-empty">
-                      <p>{tr("Your response will appear here")}</p>
+                    <div className="response-empty response-welcome">
+                      <span
+                        className="response-welcome-icon"
+                        aria-hidden="true"
+                      >
+                        ↗
+                      </span>
+                      <h3>{tr("Your response will appear here")}</h3>
+                      <p>
+                        {tr(
+                          "Enter a URL and select Send to inspect the response.",
+                        )}
+                      </p>
+                      <small>
+                        {tr("Send request")}{" "}
+                        <kbd>{platformShortcut("Enter")}</kbd>
+                      </small>
                     </div>
                   ) : null}
                 </section>
               </>
             ) : (
               <div className="empty-workspace">
+                <span className="response-welcome-icon" aria-hidden="true">
+                  <Icon name="plus" />
+                </span>
+                <h2>{tr("Start a request")}</h2>
+                <p>{tr("Create a request or open one from Collections.")}</p>
                 <button className="primary" onClick={newTab}>
                   {tr("＋ New request")}
                 </button>
@@ -2574,7 +2584,7 @@ export default function App() {
               aria-expanded={consoleOpen}
               onClick={() => setConsoleOpen(!consoleOpen)}
             >
-              {tr("⌘ Console")}
+              {tr("Console")}
               {consoleProblems > 0 && (
                 <span className="console-problem-count">{consoleProblems}</span>
               )}

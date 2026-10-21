@@ -47,6 +47,7 @@ export type Environment = {
   metadata: any;
 };
 export type Workspace = {
+  variableRevision?: number;
   collections: Collection[];
   items: Item[];
   environments: Environment[];
