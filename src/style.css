@@ -422,18 +422,6 @@ main {
   padding: var(--space-1) var(--space-3);
   line-height: var(--line-meta);
 }
-.multipart-row {
-  display: flex;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-}
-.multipart-row input {
-  flex: 1;
-  min-width: 0;
-}
-.multipart-row input[type="checkbox"] {
-  flex: 0;
-}
 .divider {
   position: relative;
   z-index: 3;
@@ -511,6 +499,7 @@ main {
 }
 .metrics span {
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 .metrics button {
   font-size: var(--font-size-meta);
@@ -1625,6 +1614,9 @@ button.primary {
   --kv-columns: 36px minmax(80px, 1fr) minmax(110px, 1.5fr) minmax(70px, 1fr)
     65px 32px;
 }
+.kv-formdata {
+  --kv-columns: 36px minmax(100px, 1fr) 80px minmax(150px, 1.5fr) 32px;
+}
 .kv-label,
 .kv-row {
   display: grid;
@@ -1675,8 +1667,41 @@ button.primary {
 .kv-row[data-enabled="false"] input:not([type="checkbox"]) {
   color: var(--muted);
 }
-.kv-row input:not([type="checkbox"]):focus {
+.kv-row input:not([type="checkbox"]):focus,
+.kv-row select:focus {
   outline-offset: -2px;
+}
+.kv-row select {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  padding: var(--space-2);
+  background: transparent;
+  font-size: var(--font-size-meta);
+}
+.kv-row .formdata-file {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  padding: var(--space-2);
+  color: var(--text);
+  font-size: var(--font-size-body);
+  text-align: left;
+}
+.formdata-file span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kv-row[data-enabled="false"] .formdata-file,
+.kv-row[data-enabled="false"] select {
+  color: var(--muted);
+}
+.table-help {
+  display: flex;
+  justify-content: flex-end;
 }
 .form input,
 .form select,
@@ -1775,6 +1800,26 @@ button.primary {
   font-size: var(--font-size-meta);
   padding: 0 var(--space-4) var(--space-2);
   line-height: var(--line-meta);
+}
+.response-metadata {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+.response-environment {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.response-previous {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-control);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-weight: var(--font-weight-medium);
 }
 .response > .cm-theme {
   flex: 1;
@@ -2641,6 +2686,17 @@ button.primary {
 .script-results > summary {
   cursor: pointer;
   color: var(--muted);
+}
+.script-results[data-failed="true"] > summary {
+  color: var(--error-text);
+}
+.script-result-meta {
+  margin-inline-start: var(--space-3);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.script-results .error {
+  overflow-wrap: anywhere;
 }
 .script-results[open] > summary {
   margin-bottom: var(--space-2);

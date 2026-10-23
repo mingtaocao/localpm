@@ -57,7 +57,8 @@ import { MethodSelect } from "./components/MethodSelect";
 import { RequestTabs } from "./components/RequestTabs";
 import { MoreMenu } from "./components/MoreMenu";
 import { readLayout, saveLayout, layoutNumber } from "./stores/layout";
-import { AnimatedCounter } from "./components/rare-ui/animated-counter";
+import { FormDataEditor } from "./components/FormDataEditor";
+import { HelpTip } from "./components/HelpTip";
 type SaveTarget = { collectionId: string; parentId: string | null };
 const DEFAULT_SIDEBAR_WIDTH = 260;
 const MIN_SIDEBAR_WIDTH = 220;
@@ -307,9 +308,11 @@ export default function App() {
       ? 420
       : editor === "Body" && r?.body.mode === "raw"
         ? 380
-        : consoleOpen
-          ? 240
-          : 180,
+        : editor === "Body" && r?.body.mode === "formdata"
+          ? 320
+          : consoleOpen
+            ? 240
+            : 180,
     maxEditorHeight,
   );
   const editorHeight = Math.max(
@@ -1939,11 +1942,15 @@ export default function App() {
                           rows={r.headers}
                           onChange={(headers) => edit({ headers })}
                         />
-                        <p className="muted">
-                          {tr(
-                            "System headers: Host, Content-Length and body Content-Type are generated on send. User headers take priority.",
-                          )}
-                        </p>
+                        <div className="table-help">
+                          <HelpTip label={tr("System headers")}>
+                            <p>
+                              {tr(
+                                "System headers: Host, Content-Length and body Content-Type are generated on send. User headers take priority.",
+                              )}
+                            </p>
+                          </HelpTip>
+                        </div>
                       </>
                     )}
                     {editor === "Authorization" && (
@@ -2103,139 +2110,14 @@ export default function App() {
                           />
                         )}
                         {r.body.mode === "formdata" && (
-                          <>
-                            {(r.body.formdata ?? []).map(
-                              (p: any, i: number) => (
-                                <div className="multipart-row" key={i}>
-                                  <input
-                                    type="checkbox"
-                                    checked={!p.disabled}
-                                    onChange={(e) =>
-                                      edit({
-                                        body: {
-                                          ...r.body,
-                                          formdata: r.body.formdata.map(
-                                            (f: any, n: number) =>
-                                              i === n
-                                                ? {
-                                                    ...f,
-                                                    disabled: !e.target.checked,
-                                                  }
-                                                : f,
-                                          ),
-                                        },
-                                      })
-                                    }
-                                  />
-                                  <input
-                                    placeholder={tr("Key")}
-                                    value={p.key}
-                                    onChange={(e) =>
-                                      edit({
-                                        body: {
-                                          ...r.body,
-                                          formdata: r.body.formdata.map(
-                                            (f: any, n: number) =>
-                                              i === n
-                                                ? { ...f, key: e.target.value }
-                                                : f,
-                                          ),
-                                        },
-                                      })
-                                    }
-                                  />
-                                  <select
-                                    value={p.type}
-                                    onChange={(e) =>
-                                      edit({
-                                        body: {
-                                          ...r.body,
-                                          formdata: r.body.formdata.map(
-                                            (f: any, n: number) =>
-                                              i === n
-                                                ? { ...f, type: e.target.value }
-                                                : f,
-                                          ),
-                                        },
-                                      })
-                                    }
-                                  >
-                                    <option value="text">{tr("text")}</option>
-                                    <option value="file">{tr("file")}</option>
-                                  </select>
-                                  {p.type === "file" ? (
-                                    <button
-                                      onClick={async () => {
-                                        const src = await api.file();
-                                        if (src)
-                                          edit({
-                                            body: {
-                                              ...r.body,
-                                              formdata: r.body.formdata.map(
-                                                (f: any, n: number) =>
-                                                  i === n ? { ...f, src } : f,
-                                              ),
-                                            },
-                                          });
-                                      }}
-                                    >
-                                      {p.src || tr("Choose file")}
-                                    </button>
-                                  ) : (
-                                    <input
-                                      placeholder={tr("Value")}
-                                      value={p.value}
-                                      onChange={(e) =>
-                                        edit({
-                                          body: {
-                                            ...r.body,
-                                            formdata: r.body.formdata.map(
-                                              (f: any, n: number) =>
-                                                i === n
-                                                  ? {
-                                                      ...f,
-                                                      value: e.target.value,
-                                                    }
-                                                  : f,
-                                            ),
-                                          },
-                                        })
-                                      }
-                                    />
-                                  )}
-                                  <button
-                                    onClick={() =>
-                                      edit({
-                                        body: {
-                                          ...r.body,
-                                          formdata: r.body.formdata.filter(
-                                            (_: any, n: number) => n !== i,
-                                          ),
-                                        },
-                                      })
-                                    }
-                                  >
-                                    ×
-                                  </button>
-                                </div>
-                              ),
-                            )}
-                            <button
-                              onClick={() =>
-                                edit({
-                                  body: {
-                                    ...r.body,
-                                    formdata: [
-                                      ...(r.body.formdata ?? []),
-                                      { key: "", value: "", type: "text" },
-                                    ],
-                                  },
-                                })
-                              }
-                            >
-                              {tr("＋ Add field")}
-                            </button>
-                          </>
+                          <FormDataEditor
+                            key={r.id}
+                            rows={r.body.formdata ?? []}
+                            onChange={(formdata) =>
+                              edit({ body: { ...r.body, formdata } })
+                            }
+                            onError={fail}
+                          />
                         )}
                         {r.body.mode === "file" && (
                           <button
@@ -2321,21 +2203,10 @@ export default function App() {
                             {tab.response.status} {tab.response.statusText}
                           </b>
                           <span>
-                            <AnimatedCounter
-                              value={tab.response.duration}
-                              separator=""
-                              duration={0.3}
-                            />{" "}
-                            {tr("ms")}
+                            {tab.response.duration} {tr("ms")}
                           </span>
                           <span>
-                            <AnimatedCounter
-                              value={tab.response.size / 1024}
-                              decimals={2}
-                              separator=""
-                              duration={0.3}
-                            />{" "}
-                            {tr("KB")}
+                            {(tab.response.size / 1024).toFixed(2)} {tr("KB")}
                           </span>
                         </div>
                         <div className="response-tools">
@@ -2427,25 +2298,29 @@ export default function App() {
                   </div>
                   {tab?.responseContext && (
                     <div
-                      className="response-context"
+                      className="response-context response-metadata"
                       title={tab.responseContext.url}
                     >
-                      {tr(
-                        "Response received at %{time} · %{environment}",
-                        tab.responseContext,
-                      )}
+                      <span>
+                        {tr("Received at %{time}", {
+                          time: tab.responseContext.time,
+                        })}
+                      </span>
+                      <span
+                        className="response-environment"
+                        title={tab.responseContext.environment}
+                      >
+                        {tr("Environment: %{environment}", {
+                          environment: tab.responseContext.environment,
+                        })}
+                      </span>
                       {tab.responseIsPrevious && (
-                        <>
-                          {" "}
-                          · <strong>{tr("Previous response")}</strong>
-                        </>
+                        <strong className="response-previous">
+                          {tr("Previous response")}
+                        </strong>
                       )}
-                    </div>
-                  )}
-                  {tab?.execution && tab.response && (
-                    <div className="response-context" role="status">
-                      {tr(
-                        "Sending request… Previous response remains available.",
+                      {tab.execution && (
+                        <span role="status">{tr("Sending request…")}</span>
                       )}
                     </div>
                   )}
