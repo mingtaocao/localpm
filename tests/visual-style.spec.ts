@@ -8,7 +8,9 @@ async function openReview(page: Page, theme: string, language: string) {
         name:
           index === 0
             ? "获取用户详情 / User profile"
-            : `订单查询与状态更新 ${index}`,
+            : index === 1
+              ? "Ping"
+              : `订单查询与状态更新 ${index}`,
         method: index === 0 ? "GET" : "POST",
         url: `https://api.example.test/v1/users/${index}`,
         params: [],
@@ -40,17 +42,30 @@ async function openReview(page: Page, theme: string, language: string) {
             metadata: null,
           },
         ],
-        items: requests.map((request, index) => ({
-          id: `item-${index}`,
-          name: request.name,
-          collectionId: "review",
-          parentId: null,
-          kind: "request",
-          order: index,
-          auth: { type: "inherit" },
-          request,
-          metadata: null,
-        })),
+        items: [
+          {
+            id: "users-folder",
+            name: "用户管理 / Users",
+            collectionId: "review",
+            parentId: null,
+            kind: "folder",
+            order: -1,
+            auth: { type: "inherit" },
+            request: null,
+            metadata: null,
+          },
+          ...requests.map((request, index) => ({
+            id: `item-${index}`,
+            name: request.name,
+            collectionId: "review",
+            parentId: index < 2 ? "users-folder" : null,
+            kind: "request",
+            order: index,
+            auth: { type: "inherit" },
+            request,
+            metadata: null,
+          })),
+        ],
         environments: [
           {
             id: "dev",
@@ -185,7 +200,77 @@ for (const theme of ["light", "dark"]) {
         await page.screenshot({
           path: `artifacts/style-review/${theme}-${language}-${width}.png`,
         });
+        await page.getByRole("button", { name: /^(Params|参数)$/ }).click();
+        await page.getByLabel(/^(Key 1|键 1)$/).fill("page");
+        await page.getByLabel(/^(Value 1|值 1)$/).fill("1");
+        await page.screenshot({
+          path: `artifacts/style-review/params-${theme}-${language}-${width}.png`,
+        });
+        await page.getByRole("button", { name: /^(Scripts|脚本)$/ }).click();
+        await page.screenshot({
+          path: `artifacts/style-review/scripts-${theme}-${language}-${width}.png`,
+        });
       });
     }
+  }
+}
+
+for (const theme of ["light", "dark"]) {
+  for (const language of ["en-US", "zh-CN"]) {
+    test(`${theme} ${language}: help and parameter controls work with pointer and keyboard`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 900, height: 640 });
+      await openReview(page, theme, language);
+      const ping = page
+        .locator(".tab")
+        .filter({ has: page.getByText("Ping", { exact: true }) });
+      const name = (await ping.locator(".tab-name").boundingBox())!;
+      const close = (await ping.locator(".tab-close .icon").boundingBox())!;
+      expect(close.x - (name.x + name.width)).toBeLessThanOrEqual(14);
+      await page.getByRole("button", { name: /^(Scripts|脚本)$/ }).click();
+      const help = page.getByRole("button", {
+        name: /^(Script help|脚本帮助)$/,
+      });
+      const tooltip = page.getByRole("tooltip");
+      await expect(tooltip).toHaveCount(0);
+      await help.hover();
+      await expect(tooltip).toContainText("{{token}}");
+      await tooltip.hover();
+      await expect(tooltip).toBeVisible();
+      const bounds = (await tooltip.boundingBox())!;
+      expect(bounds.x).toBeGreaterThanOrEqual(0);
+      expect(bounds.y).toBeGreaterThanOrEqual(0);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(900);
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(640);
+      await page
+        .getByRole("button", { name: /^(Insert snippet|插入示例)$/ })
+        .focus();
+      await page.keyboard.press("Tab");
+      await expect(help).toBeFocused();
+      await expect(help).toHaveAttribute(
+        "aria-describedby",
+        (await tooltip.getAttribute("id")) as string,
+      );
+      await help.press("Escape");
+      await expect(tooltip).toHaveCount(0);
+      await expect(help).toBeFocused();
+      await help.click();
+      await expect(tooltip).toBeVisible();
+      await page.getByRole("button", { name: /^(Params|参数)$/ }).click();
+      await expect(tooltip).toHaveCount(0);
+      const row = page.locator(".kv-row").first();
+      const checkbox = row.locator('input[type="checkbox"]').first();
+      await row.locator(".kv-toggle-cell").click({ position: { x: 3, y: 3 } });
+      await expect(checkbox).not.toBeChecked();
+      await expect(checkbox).toBeFocused();
+      await expect(checkbox).toHaveCSS("outline-style", "none");
+      await checkbox.press("Tab");
+      await page.keyboard.press("Shift+Tab");
+      await expect(checkbox).toBeFocused();
+      await expect(checkbox).toHaveCSS("outline-style", "solid");
+      await checkbox.press("Space");
+      await expect(checkbox).toBeChecked();
+    });
   }
 }

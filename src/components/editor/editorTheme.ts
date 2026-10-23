@@ -47,8 +47,8 @@ export function editorTheme(dark: boolean) {
           color: "var(--text)",
         },
         ".cm-selectionMatch": {
-          outline: "1px solid var(--editor-bracket-border)",
-          backgroundColor: "var(--editor-bracket-bg)",
+          outline: "1px solid var(--editor-occurrence-border)",
+          backgroundColor: "var(--editor-occurrence-bg)",
         },
         ".cm-activeLine, .cm-activeLineGutter": {
           backgroundColor: "var(--editor-active-line)",
@@ -63,21 +63,24 @@ export function editorTheme(dark: boolean) {
           fontWeight: "600",
         },
         "&.cm-focused .cm-matchingBracket, .cm-matchingBracket": {
-          backgroundColor: "var(--editor-bracket-bg)",
-          outline: "1px solid var(--editor-bracket-border)",
-          color: "var(--text)",
+          backgroundColor: "var(--editor-match-bg)",
+          outline: "none",
+          borderRadius: "2px",
+          color: "var(--editor-match-text)",
         },
         ".cm-nonmatchingBracket": {
-          backgroundColor: "var(--error-bg)",
-          outline: "1px solid var(--error-text)",
+          backgroundColor: "transparent",
+          outline: "none",
+          textDecoration: "underline wavy var(--error-text)",
+          textUnderlineOffset: "2px",
         },
         ".cm-searchMatch": {
           backgroundColor: "var(--warning-bg)",
           outline: "1px solid var(--warning-text)",
         },
         ".cm-searchMatch-selected": {
-          backgroundColor: "var(--editor-bracket-bg)",
-          outline: "1px solid var(--editor-bracket-border)",
+          backgroundColor: "var(--editor-occurrence-bg)",
+          outline: "1px solid var(--editor-occurrence-border)",
         },
         ".cm-panels": {
           color: "var(--text)",

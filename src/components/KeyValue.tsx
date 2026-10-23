@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useId, useState } from "react";
 import { parsePairPaste, type PairPasteMode } from "../utils/pastePairs";
 import { pair, type Pair } from "../types";
+import { Icon } from "./Icon";
 export function KeyValue({
   rows,
   onChange,
@@ -58,13 +59,15 @@ export function KeyValue({
         <span />
       </div>
       {displayRows.map((r, i) => (
-        <div className="kv-row" key={i}>
-          <input
-            aria-label={tr("Enable row %{index}", { index: i + 1 })}
-            type="checkbox"
-            checked={r.enabled}
-            onChange={(e) => update(i, { enabled: e.target.checked })}
-          />
+        <div className="kv-row" data-enabled={r.enabled} key={i}>
+          <label className="kv-toggle-cell">
+            <input
+              aria-label={tr("Enable row %{index}", { index: i + 1 })}
+              type="checkbox"
+              checked={r.enabled}
+              onChange={(e) => update(i, { enabled: e.target.checked })}
+            />
+          </label>
           <input
             id={`${inputId}-key-${i + 1}`}
             aria-label={tr("Key %{index}", { index: i + 1 })}
@@ -143,10 +146,11 @@ export function KeyValue({
           )}
           <button
             title={tr("Remove row")}
+            aria-label={tr("Remove row")}
             disabled={i === rows.length}
             onClick={() => remove(i)}
           >
-            ×
+            <Icon name="close" />
           </button>
         </div>
       ))}

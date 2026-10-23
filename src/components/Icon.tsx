@@ -10,6 +10,8 @@ type IconName =
   | "search"
   | "sun"
   | "moon"
+  | "help"
+  | "folder"
   | "chevron-up"
   | "chevron-left"
   | "chevron-right"
@@ -49,6 +51,15 @@ export function Icon({ name }: { name: IconName }) {
         <circle cx="10.5" cy="10.5" r="6.5" />
         <path d="m16 16 5 5" />
       </>
+    ),
+    help: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M9.5 9a2.5 2.5 0 0 1 5 .5c0 1.5-2.5 2-2.5 3.5m0 3h.01" />
+      </>
+    ),
+    folder: (
+      <path d="M3 7V6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
     ),
     sun: (
       <>

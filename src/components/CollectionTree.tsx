@@ -194,6 +194,7 @@ export function CollectionTree({
                 className={row.item ? "tree-item" : "collection"}
                 onClick={activate}
               >
+                {row.item?.kind === "folder" && <Icon name="folder" />}
                 {row.item?.request && (
                   <span
                     className="method"
