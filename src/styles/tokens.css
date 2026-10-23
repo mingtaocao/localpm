@@ -75,8 +75,10 @@
   --editor-cursor: #242424;
   --editor-selection: #99c2f1;
   --editor-active-line: #8080800a;
-  --editor-bracket-bg: #e0ebff;
-  --editor-bracket-border: #2864dc;
+  --editor-match-bg: #e7e9eb;
+  --editor-match-text: #25364b;
+  --editor-occurrence-bg: #e0ebff;
+  --editor-occurrence-border: #2864dc;
   --editor-string: #075fba;
   --editor-number: #086d45;
   --editor-literal: #7540a0;
@@ -125,8 +127,10 @@
   --editor-cursor: #f4f7ff;
   --editor-selection: #365f96;
   --editor-active-line: #ffffff08;
-  --editor-bracket-bg: #2c4164;
-  --editor-bracket-border: #86acff;
+  --editor-match-bg: #414549;
+  --editor-match-text: #eef1f5;
+  --editor-occurrence-bg: #2c4164;
+  --editor-occurrence-border: #86acff;
   --editor-string: #91c5ff;
   --editor-number: #7cdeb1;
   --editor-literal: #d4b2f2;

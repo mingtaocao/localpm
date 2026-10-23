@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CodeEditor } from "../editor/CodeEditor";
+import { HelpTip } from "../HelpTip";
 import type { EditorSessions } from "../editor/editorSessions";
 import type { ScriptSet } from "../../scripts/model";
 export function ScriptEditor({
@@ -65,12 +66,19 @@ export function ScriptEditor({
         >
           {t("Insert snippet")}
         </button>
+        <HelpTip label={t("Script help")}>
+          <p>
+            {t(
+              "Extract a response field, then use {{token}} in the next request. Select an environment before writing environment variables.",
+            )}
+          </p>
+          <p>
+            {t(
+              "Scripts support pm.response, variable get/set/unset, pm.test and basic pm.expect. pm.sendRequest and async scripts are not supported.",
+            )}
+          </p>
+        </HelpTip>
       </div>
-      <p className="muted script-help">
-        {t(
-          "Extract a response field, then use {{token}} in the next request. Select an environment before writing environment variables.",
-        )}
-      </p>
       {!!inherited.length && onInheritedChange && (
         <label className="script-inheritance">
           <input
@@ -100,11 +108,6 @@ export function ScriptEditor({
         language="javascript"
         onChange={(code) => onChange({ ...value, [phase]: code })}
       />
-      <p className="muted script-help">
-        {t(
-          "Scripts support pm.response, variable get/set/unset, pm.test and basic pm.expect. pm.sendRequest and async scripts are not supported.",
-        )}
-      </p>
     </div>
   );
 }

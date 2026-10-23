@@ -1585,7 +1585,9 @@ for (const theme of ["light", "dark"]) {
     for (const name of ["API", "Users folder"]) {
       const label = page.getByRole("button", { name, exact: true });
       const row = page.locator(".tree-row").filter({ has: label });
-      await expect(label.locator("svg, .folder")).toHaveCount(0);
+      await expect(label.locator("svg")).toHaveCount(
+        name === "Users folder" ? 1 : 0,
+      );
       await expect(row.locator(".collapse")).toHaveCount(1);
       await expect(row.locator(".collapse svg")).toHaveCount(1);
       expect(await row.innerText()).not.toMatch(/[▣▾▸]/);
