@@ -46,6 +46,8 @@ Settings / 设置中的“外观”区域支持浅色、深色、跟随系统，
 
 CSS 使用语义颜色变量和 `data-theme`；CodeMirror 的请求体、响应、搜索与折叠提示随主题及语言切换。i18next 资源集中在 `src/i18n/en-US.json` 和 `zh-CN.json`。变量、请求名称、HTTP Method、Header、JSON 及服务器返回内容保持原样；HTML 响应预览保留服务器的原始样式。系统文件对话框的标题由应用翻译，系统按钮由操作系统决定语言。
 
+字体、排版、间距、控件尺寸、主题与截图验收统一遵循 [UI 视觉与 CSS 规范](docs/UI-STYLE-GUIDE.md)。设计变量集中在 `src/styles/tokens.css`，组件样式维护在 `src/style.css`。
+
 新增自动验证覆盖三种主题、系统主题变化、中英文及系统语言切换、旧设置兼容、真实 SQLite 后端重启，以及切换前后请求数据不变。验收记录见 [THEME_I18N_ACCEPTANCE.md](THEME_I18N_ACCEPTANCE.md)。
 
 ## 开发

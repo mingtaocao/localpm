@@ -1,5 +1,7 @@
 # LocalPM UI/UX V1.0 implementation and acceptance
 
+> Historical implementation report. Current typography, spacing, colors and visual acceptance follow [UI-STYLE-GUIDE.md](UI-STYLE-GUIDE.md).
+
 Implementation branch: `dev`. Design baseline: the supplied LocalPM UI/UX modernization specification. Existing uncommitted MCP/backend/release changes were present before this task and are outside this UI change.
 
 ## Audit and scope
@@ -48,3 +50,15 @@ Validation: 38 Playwright tests pass, including five new task-based acceptance c
 macOS native inspection used a separately identified copy of the built app with `LOCAL_POSTMAN_DATA_DIR=/tmp/localpm-ui-acceptance-data`, so the user's running app and workspace were not edited. The accessibility tree confirms an HTTP-method popup and its GET/POST/etc. menu, and the workbench/resource/save/Console entry points. Native automation did not confirm a value change after attempted menu selection; the native selection interaction remains a manual acceptance item. Browser selection and resulting method changes were verified by tests. Windows native selection remains unverified.
 
 The corrected Apple Silicon package is `artifacts/LocalPM-0.5.0-macos-arm64-ui-interactions.dmg`. Both app signature verification and DMG checksum verification pass. It retains local ad-hoc signing and is not Apple-notarized.
+
+## Minimal visual baseline (2026-10-23, 0.15.1)
+
+The current visual contract is [UI-STYLE-GUIDE.md](UI-STYLE-GUIDE.md), linked from AGENTS.md, README.md and the main design document. It uses Geist as the primary reference and Carbon's spacing method, with project-specific values documented explicitly.
+
+- `src/styles/tokens.css` owns offline system/CJK font fallbacks, typography roles, spacing, control sizes, radii and neutral light/dark palettes. CodeMirror shares its code-font and line-height variables.
+- Base selectors are consolidated; responsive/input-mode variants follow component defaults. Layout spacing uses shared tokens. Navigation uses subtle neutral fills, and Send uses an inverse monochrome treatment; semantic status, method, syntax and focus colors remain distinguishable.
+- Browser inspection and regression caught and corrected a secret-table grid override and insufficient visible code space when searching at the minimum window size. Theme assertions follow the current surface token, and existing shortcut selectors support both Cmd and Ctrl.
+
+Validation: lint, typecheck, 30 Vitest tests, four version-sync tests, version consistency and production build pass. All 85 frontend Playwright regressions pass, including eight mixed-language/theme/window visual checks with alignment, overflow and text-contrast assertions. Screenshots are generated under `artifacts/style-review/`; the fixture uses a simulated backend and local CJK fonts in Linux, so it does not claim native font fidelity.
+
+Rust-backed integration tests and Windows/macOS native package validation were not run in this environment because a Rust toolchain is unavailable. No installer or Release is produced by this change. The existing production bundle-size warning remains.

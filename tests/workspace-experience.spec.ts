@@ -37,7 +37,9 @@ async function openMore(page: Page) {
 }
 
 async function saveRequest(page: Page) {
-  await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
+  await page
+    .getByRole("button", { name: /^Save (?:⌘S|Ctrl\+S)$/, exact: true })
+    .click();
   if (await page.getByLabel("Save location", { exact: true }).isVisible()) {
     await page
       .getByLabel("Save location", { exact: true })
@@ -1354,7 +1356,9 @@ test("temporary requests send without entering a collection and save only to an 
   await expect(page.locator(".request-location")).toHaveText(
     "Temporary request",
   );
-  await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
+  await page
+    .getByRole("button", { name: /^Save (?:⌘S|Ctrl\+S)$/, exact: true })
+    .click();
   await expect(page.getByLabel("Save location")).toHaveValue("");
   await expect(
     page.getByRole("button", { name: "Save request", exact: true }),
@@ -1403,7 +1407,9 @@ test("adding within a folder fixes the destination at creation even after resour
     .getByRole("button", { name: "Edit collection Other API", exact: true })
     .click();
   await page.getByRole("button", { name: "Close ×", exact: true }).click();
-  await page.getByRole("button", { name: "Save ⌘S", exact: true }).click();
+  await page
+    .getByRole("button", { name: /^Save (?:⌘S|Ctrl\+S)$/, exact: true })
+    .click();
   await expect
     .poll(
       () =>
@@ -1631,7 +1637,7 @@ test("search disclosure state matches visible children and preserves the saved b
   await openWorkspace(page, { configure: nestUsers });
   await showSidebar(page);
   await page.getByRole("button", { name: "Collapse API", exact: true }).click();
-  const search = page.getByPlaceholder("Search name or URL  ⌘K");
+  const search = page.getByPlaceholder(/^Search name or URL\s+(?:⌘K|Ctrl\+K)$/);
   await search.fill("users");
   await expect(
     page.getByRole("button", { name: "Collapse API", exact: true }),
@@ -1753,7 +1759,7 @@ test("text toggling in search preserves the normal collection layout", async ({
   await showSidebar(page);
   const collection = page.getByRole("button", { name: "API", exact: true });
   await collection.click();
-  const search = page.getByPlaceholder("Search name or URL  ⌘K");
+  const search = page.getByPlaceholder(/^Search name or URL\s+(?:⌘K|Ctrl\+K)$/);
   await search.fill("Users");
   await expect(collection).toHaveAttribute("aria-expanded", "true");
   const folder = page.getByRole("button", {
