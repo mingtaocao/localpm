@@ -186,6 +186,8 @@ local-postman/
 
 ## 5. UI 总体布局
 
+现行字体、间距、颜色、控件尺寸与视觉验收以 [UI 视觉与 CSS 规范](docs/UI-STYLE-GUIDE.md) 为准；本节描述布局职责。
+
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
 │ Local Postman                       Environment: DEV    ⚙       │

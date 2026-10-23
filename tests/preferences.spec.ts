@@ -1,4 +1,4 @@
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { mkdtempSync } from "node:fs";
@@ -6,6 +6,19 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 type Backend = { restart: () => Promise<void>; read: () => Promise<any> };
+async function expectEditorSurfaces(page: Page) {
+  const surface = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.backgroundColor = "var(--surface)";
+    document.body.append(probe);
+    const color = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return color;
+  });
+  for (const selector of [".request-editor .cm-editor", ".response .cm-editor"])
+    await expect(page.locator(selector)).toHaveCSS("background-color", surface);
+}
+
 const test = base.extend<{ backend: Backend }>({
   backend: async ({ page }, use) => {
     const data = mkdtempSync(join(tmpdir(), "lp-preferences-"));
@@ -134,14 +147,7 @@ test("theme and language persist through Rust/SQLite restart without translating
   await expect(page.locator(".response .cm-content")).toContainText(
     "English 中文",
   );
-  await expect(page.locator(".request-editor .cm-editor")).toHaveCSS(
-    "background-color",
-    "rgb(30, 31, 34)",
-  );
-  await expect(page.locator(".response .cm-editor")).toHaveCSS(
-    "background-color",
-    "rgb(30, 31, 34)",
-  );
+  await expectEditorSurfaces(page);
   await page.locator(".request-editor .cm-content").click();
   await page
     .locator(".request-editor .cm-content")
@@ -176,15 +182,9 @@ test("theme and language persist through Rust/SQLite restart without translating
   await expect(page.locator(".request-editor .cm-content")).toContainText(
     '"message":"English 中文"',
   );
-  await expect(page.locator(".request-editor .cm-editor")).toHaveCSS(
-    "background-color",
-    "rgb(255, 255, 255)",
-  );
+  await expectEditorSurfaces(page);
   await page.getByRole("button", { name: "Send ↗" }).click();
-  await expect(page.locator(".response .cm-editor")).toHaveCSS(
-    "background-color",
-    "rgb(255, 255, 255)",
-  );
+  await expectEditorSurfaces(page);
   await page.screenshot({ path: "artifacts/theme-light-en-request.png" });
   await expect
     .poll(async () => (await backend.read()).workspace.settings.theme)

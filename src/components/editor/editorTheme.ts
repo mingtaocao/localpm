@@ -31,8 +31,8 @@ export function editorTheme(dark: boolean) {
           backgroundColor: "transparent",
         },
         ".cm-scroller": {
-          fontFamily: 'ui-monospace, "SFMono-Regular", Consolas, monospace',
-          lineHeight: "1.6",
+          fontFamily: "var(--font-code)",
+          lineHeight: "var(--line-copy)",
         },
         ".cm-cursor, .cm-dropCursor": {
           borderLeftColor: "var(--editor-cursor)",
