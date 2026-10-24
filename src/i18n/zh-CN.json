@@ -476,5 +476,11 @@
   "error.SCRIPT_ERROR": "脚本执行失败，请查看脚本结果或诊断详情。",
   "error.SCRIPT_TIMEOUT": "脚本执行超时，已停止。",
   "error.SCRIPT_VARIABLE_CONFLICT": "变量在执行期间被修改，本次写入已取消。",
-  "error.SCRIPT_SCOPE_DENIED": "此执行没有修改该变量作用域的权限。"
+  "error.SCRIPT_SCOPE_DENIED": "此执行没有修改该变量作用域的权限。",
+  "System headers": "系统请求头",
+  "Received at %{time}": "接收于 %{time}",
+  "Environment: %{environment}": "环境：%{environment}",
+  "Field type %{index}": "字段类型 %{index}",
+  "Choose file %{index}": "选择文件 %{index}",
+  "TYPE": "类型"
 }

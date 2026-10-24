@@ -734,7 +734,7 @@ test("a new execution preserves the previous response and network failure keeps 
   await expect(page.locator(".response-context")).toContainText("DEV");
   await page.getByRole("button", { name: "Send ↗", exact: true }).click();
   await expect(
-    page.getByText("Sending request… Previous response remains available.", {
+    page.getByText("Sending request…", {
       exact: true,
     }),
   ).toBeVisible();
@@ -1075,12 +1075,10 @@ for (const theme of ["light", "dark"]) {
     await expect(params).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByLabel("Value 1", { exact: true })).toHaveValue("1");
     await page.getByRole("button", { name: "Send ↗", exact: true }).click();
-    const counters = page.locator(
-      '.metrics [data-slot="animated-counter"] .rare-sr-only',
-    );
-    await expect(counters).toHaveText(["128", "2.00"]);
+    const counters = page.locator(".metrics > span");
+    await expect(counters).toHaveText(["128 ms", "2.00 KB"]);
     await page.getByRole("button", { name: "Send ↗", exact: true }).click();
-    await expect(counters).toHaveText(["45", "0.50"]);
+    await expect(counters).toHaveText(["45 ms", "0.50 KB"]);
     await page.screenshot({ path: `artifacts/modern-ui-${theme}.png` });
     await page.setViewportSize({ width: 900, height: 640 });
     await expect(
@@ -2031,4 +2029,101 @@ test("Windows and Linux use Ctrl shortcut hints in both languages", async ({
     page.getByRole("button", { name: "保存 Ctrl+S", exact: true }),
   ).toBeVisible();
   await expect(page.getByPlaceholder("搜索名称或 URL  Ctrl+K")).toBeVisible();
+});
+
+test("form-data preserves disabled fields and file paths while editing and sending", async ({
+  page,
+}) => {
+  let sent: RequestSpec | undefined;
+  await openWorkspace(page, {
+    configure: (workspace) => {
+      workspace.items[0].request!.body = {
+        mode: "formdata",
+        formdata: [
+          {
+            key: "title",
+            value: "original",
+            type: "text",
+            disabled: true,
+            description: "Keep metadata",
+          },
+          {
+            key: "upload",
+            type: "file",
+            src: "/tmp/reports/very-long-report-name.json",
+          },
+        ],
+      };
+    },
+    send: async ({ request }) => {
+      sent = request;
+      return response;
+    },
+  });
+  await page.getByRole("button", { name: "Body", exact: true }).click();
+  const table = page.locator(".kv-formdata");
+  await expect(table.locator(".kv-row")).toHaveCount(3);
+  await expect(
+    table.getByLabel("Enable row 1", { exact: true }),
+  ).not.toBeChecked();
+  await table.getByLabel("Value 1", { exact: true }).fill("updated");
+  await expect(table.getByLabel("Choose file 2", { exact: true })).toHaveText(
+    "very-long-report-name.json",
+  );
+  await expect(
+    table.getByLabel("Choose file 2", { exact: true }),
+  ).toHaveAttribute("title", "/tmp/reports/very-long-report-name.json");
+  await table.getByLabel("Field type 2", { exact: true }).selectOption("text");
+  await table.getByLabel("Field type 2", { exact: true }).selectOption("file");
+  await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  await expect.poll(() => sent?.body.formdata.length).toBe(2);
+  expect(sent!.body.formdata[0]).toMatchObject({
+    value: "updated",
+    disabled: true,
+    description: "Keep metadata",
+  });
+  expect(sent!.body.formdata[1].src).toBe(
+    "/tmp/reports/very-long-report-name.json",
+  );
+  await table.getByLabel("Key 3", { exact: true }).fill("extra");
+  await expect(table.locator(".kv-row")).toHaveCount(4);
+  await table
+    .getByRole("button", { name: "Remove row", exact: true })
+    .nth(2)
+    .click();
+  await expect(table.locator(".kv-row")).toHaveCount(3);
+});
+
+test("failed assertions reopen script results and a successful retry collapses them", async ({
+  page,
+}) => {
+  let calls = 0;
+  await openWorkspace(page, {
+    send: async () => ({
+      ...response,
+      scripts: {
+        tests: [
+          {
+            name: "expected token",
+            passed: ++calls === 3,
+            error: calls === 3 ? undefined : "Token missing",
+          },
+        ],
+      },
+    }),
+  });
+  const send = page.getByRole("button", { name: "Send ↗", exact: true });
+  const results = page.locator(".script-results");
+  await send.click();
+  await expect(results).toHaveAttribute("open", "");
+  await expect(
+    results.getByText("Token missing", { exact: false }),
+  ).toBeVisible();
+  await results.locator("summary").click();
+  await expect(results).not.toHaveAttribute("open");
+  await send.click();
+  await expect(results).toHaveAttribute("open", "");
+  await send.click();
+  await expect(results).not.toHaveAttribute("open");
+  await expect(results).toHaveAttribute("data-failed", "false");
 });

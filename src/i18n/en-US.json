@@ -476,5 +476,11 @@
   "error.SCRIPT_ERROR": "Script execution failed. Check script results or diagnostics.",
   "error.SCRIPT_TIMEOUT": "Script exceeded its time limit and was stopped.",
   "error.SCRIPT_VARIABLE_CONFLICT": "Variable changed during execution; script writes were cancelled.",
-  "error.SCRIPT_SCOPE_DENIED": "This execution cannot modify that variable scope."
+  "error.SCRIPT_SCOPE_DENIED": "This execution cannot modify that variable scope.",
+  "System headers": "System headers",
+  "Received at %{time}": "Received at %{time}",
+  "Environment: %{environment}": "Environment: %{environment}",
+  "Field type %{index}": "Field type %{index}",
+  "Choose file %{index}": "Choose file %{index}",
+  "TYPE": "TYPE"
 }

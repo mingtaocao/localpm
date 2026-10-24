@@ -1,26 +1,33 @@
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { ScriptReport } from "../../types";
 export function ScriptResults({ report }: { report: ScriptReport }) {
   const { t } = useTranslation();
+  const details = useRef<HTMLDetailsElement>(null);
+  const failed =
+    !!report.error ||
+    !!report.runs?.some((run) => !run.passed) ||
+    !!report.tests?.some((test) => !test.passed);
+  useEffect(() => {
+    if (details.current) details.current.open = failed;
+  }, [report, failed]);
   return (
     <details
+      ref={details}
       className="script-results"
+      data-failed={failed}
       aria-label={t("Script results")}
-      open={!!report.error}
+      open={failed}
     >
       <summary>
         <strong>
-          {report.error || report.tests?.some((test) => !test.passed)
-            ? "✕"
-            : "✓"}{" "}
-          {t("Script results")}
+          {failed ? "✕" : "✓"} {t("Script results")}
         </strong>
         {!!report.variableUpdates?.length && (
-          <>
-            {" "}
-            · {t("Variables updated")}:{" "}
+          <span className="script-result-meta">
+            {t("Variables updated")}:{" "}
             {report.variableUpdates.map((update) => update.key).join(", ")}
-          </>
+          </span>
         )}
       </summary>
       {report.error && (
@@ -30,8 +37,12 @@ export function ScriptResults({ report }: { report: ScriptReport }) {
       )}
       {report.runs?.map((run, i) => (
         <div key={i} className={run.passed ? "" : "error"}>
-          {run.passed ? "✓" : "✕"} {run.scope} ·{" "}
-          {t(run.phase === "preRequest" ? "Pre-request" : "Post-response")}
+          <span>
+            {run.passed ? "✓" : "✕"} {run.scope}
+          </span>
+          <span className="script-result-meta">
+            {t(run.phase === "preRequest" ? "Pre-request" : "Post-response")}
+          </span>
           {run.error && `: ${run.error}`}
         </div>
       ))}

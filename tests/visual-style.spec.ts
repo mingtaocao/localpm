@@ -206,6 +206,30 @@ for (const theme of ["light", "dark"]) {
         await page.screenshot({
           path: `artifacts/style-review/params-${theme}-${language}-${width}.png`,
         });
+        await page.getByRole("button", { name: /^(Body|请求体)$/ }).click();
+        await page
+          .getByLabel(/^(Body mode|请求体类型)$/)
+          .selectOption("formdata");
+        const form = page.locator(".kv-formdata");
+        await form.getByLabel(/^(Key 1|键 1)$/).fill("附件 / attachment");
+        await form
+          .getByLabel(/^(Field type 1|字段类型 1)$/)
+          .selectOption("file");
+        const header = await form.locator(".kv-label").boundingBox();
+        const row = await form.locator(".kv-row").first().boundingBox();
+        expect(header!.x).toBe(row!.x);
+        expect(header!.width).toBe(row!.width);
+        await expect(
+          form.getByLabel(/^(Choose file 1|选择文件 1)$/),
+        ).toBeVisible();
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth - innerWidth,
+          ),
+        ).toBeLessThanOrEqual(1);
+        await page.screenshot({
+          path: `artifacts/style-review/formdata-${theme}-${language}-${width}.png`,
+        });
         await page.getByRole("button", { name: /^(Scripts|脚本)$/ }).click();
         await page.screenshot({
           path: `artifacts/style-review/scripts-${theme}-${language}-${width}.png`,
