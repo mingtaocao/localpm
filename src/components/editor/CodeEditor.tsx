@@ -15,6 +15,7 @@ import { EditorView, keymap } from "@codemirror/view";
 import { foldAll, unfoldAll } from "@codemirror/language";
 import { openSearchPanel } from "@codemirror/search";
 import { useTranslation } from "react-i18next";
+import { Icon } from "../Icon";
 import { MoreMenu } from "../MoreMenu";
 import { platformShortcut } from "../../utils/shortcuts";
 import { editorPhrases } from "../../i18n/editor";
@@ -241,26 +242,33 @@ export function CodeEditor({
         )}
         <button
           type="button"
+          className="icon-button"
+          aria-label={t("Find")}
           title={`${t("Find")} (${platformShortcut("F")})`}
           onClick={() => run(openSearchPanel)}
         >
-          {t("Find")}
+          <Icon name="search" />
         </button>
         <button
           type="button"
+          className="icon-button"
+          aria-label={t("Word wrap")}
+          title={t("Word wrap")}
           aria-pressed={wrap}
           onClick={() => setWrap(!wrap)}
         >
-          {t("Word wrap")}
+          <Icon name="wrap" />
         </button>
         {!readOnly && language === "json" && (
           <button
             type="button"
+            className="icon-button"
+            aria-label={t("Format JSON")}
             disabled={value.length > 5 * 1024 * 1024}
             title={`${t("Format JSON")} (${platformShortcut("Shift+F")})`}
             onClick={() => run(formatJson)}
           >
-            {t("Format JSON")}
+            <Icon name="format" />
           </button>
         )}
         {language !== "text" && (

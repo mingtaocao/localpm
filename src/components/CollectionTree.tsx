@@ -198,6 +198,7 @@ export function CollectionTree({
                 {row.item?.request && (
                   <span
                     className="method"
+                    title={row.item.request.method}
                     data-method={row.item?.request?.method}
                   >
                     {row.item.request.method}

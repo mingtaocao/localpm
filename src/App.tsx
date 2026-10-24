@@ -57,6 +57,7 @@ import { MethodSelect } from "./components/MethodSelect";
 import { RequestTabs } from "./components/RequestTabs";
 import { MoreMenu } from "./components/MoreMenu";
 import { readLayout, saveLayout, layoutNumber } from "./stores/layout";
+import { LocationTrail } from "./components/LocationTrail";
 import { FormDataEditor } from "./components/FormDataEditor";
 import { HelpTip } from "./components/HelpTip";
 type SaveTarget = { collectionId: string; parentId: string | null };
@@ -106,6 +107,13 @@ export default function App() {
   const executionRecords = useRef(new Map<string, ExecutionRecord>());
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
+  const [noticeHovered, setNoticeHovered] = useState(false);
+  const [noticeFocused, setNoticeFocused] = useState(false);
+  useEffect(() => {
+    if (!notice || noticeHovered || noticeFocused) return;
+    const timer = window.setTimeout(() => setNotice(""), 4000);
+    return () => window.clearTimeout(timer);
+  }, [notice, noticeHovered, noticeFocused]);
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState("");
   const [cookies, setCookies] = useState<any[]>([]);
@@ -1089,6 +1097,7 @@ export default function App() {
           </button>
           <select
             aria-label={tr("Active environment")}
+            title={environment?.name ?? tr("No environment")}
             value={w.activeEnvironment ?? ""}
             onChange={(e) =>
               void persist({
@@ -1681,6 +1690,7 @@ export default function App() {
                     <input
                       className="request-name"
                       aria-label={tr("Request name")}
+                      title={r.name}
                       value={r.name}
                       onChange={(event) => edit({ name: event.target.value })}
                     />
@@ -1692,16 +1702,20 @@ export default function App() {
                           : tr("Temporary request")
                       }
                     >
-                      {requestItem
-                        ? [
-                            requestCollection?.name,
-                            requestItem.parentId
-                              ? folderPath(requestItem.parentId)
-                              : "",
-                          ]
-                            .filter(Boolean)
-                            .join(" / ")
-                        : tr("Temporary request")}
+                      <LocationTrail
+                        parts={
+                          requestItem
+                            ? [
+                                requestCollection?.name ?? "",
+                                ...(requestItem.parentId
+                                  ? folderPath(requestItem.parentId).split(
+                                      " / ",
+                                    )
+                                  : []),
+                              ].filter(Boolean)
+                            : [tr("Temporary request")]
+                        }
+                      />
                     </span>
                     <button onClick={() => void save().catch(fail)}>
                       {tr("Save %{shortcut}", {
@@ -1732,7 +1746,7 @@ export default function App() {
                           .filter((p) => p.enabled)
                           .map(
                             (p) =>
-                              `{{${p.key}}} · ${tr(p.scope)} = ${p.isSecret ? "••••••••" : p.value}`,
+                              `{{${p.key}}} (${tr(p.scope)}) = ${p.isSecret ? "••••••••" : p.value}`,
                           )
                           .join("\n")}
                         aria-label={tr("Request URL")}
@@ -1815,7 +1829,7 @@ export default function App() {
                                 className="config-count"
                                 aria-label={tr("Configured")}
                               >
-                                •
+                                <Icon name="check" />
                               </span>
                             )}
                           </button>
@@ -1824,7 +1838,7 @@ export default function App() {
                     </nav>
                     <div className="request-tools">
                       <span
-                        className={`save-status ${tab?.saveState === "failed" ? "save-failed" : tab?.dirty ? "save-unsaved" : ""}`}
+                        className={`save-status ${tab?.saveState === "failed" ? "save-failed" : tab?.saveState === "saving" ? "" : "rare-sr-only"}`}
                         role="status"
                         title={requestCollection?.name}
                       >
@@ -2208,14 +2222,48 @@ export default function App() {
                           <span>
                             {(tab.response.size / 1024).toFixed(2)} {tr("KB")}
                           </span>
+                          {tab.responseContext && (
+                            <div className="response-context response-metadata">
+                              <span
+                                className="response-environment"
+                                title={tab.responseContext.environment}
+                              >
+                                {tab.responseContext.environment}
+                              </span>
+                              <HelpTip label={tr("Response details")}>
+                                <p>
+                                  {tr("Received at %{time}", {
+                                    time: tab.responseContext.time,
+                                  })}
+                                </p>
+                                <p>
+                                  {tr("Environment: %{environment}", {
+                                    environment:
+                                      tab.responseContext.environment,
+                                  })}
+                                </p>
+                                <p>{tab.responseContext.url}</p>
+                              </HelpTip>
+                              {tab.responseIsPrevious && (
+                                <strong className="response-previous">
+                                  {tr("Previous response")}
+                                </strong>
+                              )}
+                              {tab.execution && (
+                                <span role="status">
+                                  {tr("Sending request…")}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <div className="response-tools">
                           <button
                             aria-label={tr("Response body")}
                             className={
                               !["Headers", "Cookies"].includes(responseTab)
-                                ? "active"
-                                : ""
+                                ? "response-tab active"
+                                : "response-tab"
                             }
                             onClick={() => setResponseTab(responseFormat)}
                           >
@@ -2223,7 +2271,9 @@ export default function App() {
                           </button>
                           <button
                             className={
-                              responseTab === "Headers" ? "active" : ""
+                              responseTab === "Headers"
+                                ? "response-tab active"
+                                : "response-tab"
                             }
                             onClick={() => setResponseTab("Headers")}
                           >
@@ -2296,34 +2346,6 @@ export default function App() {
                       <h3>{tr("Response")}</h3>
                     )}
                   </div>
-                  {tab?.responseContext && (
-                    <div
-                      className="response-context response-metadata"
-                      title={tab.responseContext.url}
-                    >
-                      <span>
-                        {tr("Received at %{time}", {
-                          time: tab.responseContext.time,
-                        })}
-                      </span>
-                      <span
-                        className="response-environment"
-                        title={tab.responseContext.environment}
-                      >
-                        {tr("Environment: %{environment}", {
-                          environment: tab.responseContext.environment,
-                        })}
-                      </span>
-                      {tab.responseIsPrevious && (
-                        <strong className="response-previous">
-                          {tr("Previous response")}
-                        </strong>
-                      )}
-                      {tab.execution && (
-                        <span role="status">{tr("Sending request…")}</span>
-                      )}
-                    </div>
-                  )}
                   {!!tab?.error &&
                     (typeof tab.error === "object" &&
                     "code" in tab.error &&
@@ -2489,8 +2511,29 @@ export default function App() {
         </div>
       )}
       {notice && (
-        <div className="toast" onClick={() => setNotice("")}>
-          {tr(notice)} ×
+        <div
+          className="toast"
+          role="status"
+          onMouseEnter={() => setNoticeHovered(true)}
+          onMouseLeave={() => setNoticeHovered(false)}
+          onFocus={() => setNoticeFocused(true)}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget))
+              setNoticeFocused(false);
+          }}
+        >
+          <span>{tr(notice)}</span>
+          <button
+            className="icon-button"
+            aria-label={tr("Dismiss notification")}
+            onClick={() => {
+              setNotice("");
+              setNoticeHovered(false);
+              setNoticeFocused(false);
+            }}
+          >
+            <Icon name="close" />
+          </button>
         </div>
       )}
     </div>
