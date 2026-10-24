@@ -482,5 +482,7 @@
   "Environment: %{environment}": "环境：%{environment}",
   "Field type %{index}": "字段类型 %{index}",
   "Choose file %{index}": "选择文件 %{index}",
-  "TYPE": "类型"
+  "TYPE": "类型",
+  "Response details": "响应详情",
+  "Dismiss notification": "关闭通知"
 }

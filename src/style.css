@@ -293,7 +293,15 @@ main {
   line-height: var(--line-meta);
 }
 .config-count {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
   margin-left: var(--space-1);
+  font-variant-numeric: tabular-nums;
+}
+.config-count .icon {
+  width: 12px;
+  height: 12px;
 }
 .request-tools {
   display: flex;
@@ -475,9 +483,16 @@ main {
 .response-tools .icon-button {
   padding: var(--space-2);
 }
-.response-tools .active {
-  background: var(--selected);
+.response-tools .response-tab {
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  min-height: var(--control-compact);
+}
+.response-tools .response-tab.active {
+  background: transparent;
+  border-bottom-color: var(--tab-indicator);
   color: var(--text);
+  font-weight: var(--font-weight-medium);
 }
 .response-tools select {
   margin: 0 var(--space-1);
@@ -666,17 +681,19 @@ main {
   white-space: pre-wrap;
 }
 .toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   position: fixed;
   bottom: 20px;
   right: 20px;
-  max-width: 560px;
+  max-width: min(560px, calc(100vw - 40px));
   border: 1px solid var(--border);
   background: var(--notice-bg);
   box-shadow: 0 4px 20px var(--shadow);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-control);
   z-index: 10;
-  cursor: pointer;
 }
 .toast.error {
   background: var(--error-bg);
@@ -1075,7 +1092,7 @@ aside nav,
   border-radius: 3px;
   background: var(--surface-raised);
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-size-meta);
   font-style: normal;
 }
 .history-record {
@@ -1421,6 +1438,15 @@ aside nav.resource-navigation .active {
 .tree-item > .icon {
   color: var(--muted);
 }
+.tree-item > .method {
+  flex: 0 0 6ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree-item > span:last-child {
+  flex: 1;
+  min-width: 0;
+}
 .method {
   font: var(--font-weight-regular) var(--font-size-meta)/var(--line-copy)
     var(--font-code);
@@ -1589,13 +1615,13 @@ button.primary {
 .configuration-navigation button {
   font-size: var(--font-size-body);
   padding: var(--space-2) var(--space-3);
-  border-bottom: 0;
-  border-radius: var(--radius-control);
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
   line-height: var(--line-ui);
 }
 .configuration-navigation .active {
-  background: var(--selected);
-  border-bottom-color: transparent;
+  background: transparent;
+  border-bottom-color: var(--tab-indicator);
   color: var(--text);
   font-weight: var(--font-weight-medium);
 }
@@ -1805,11 +1831,12 @@ button.primary {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--space-1) var(--space-3);
+  gap: var(--space-1);
   min-width: 0;
+  padding: 0;
 }
 .response-environment {
-  max-width: 100%;
+  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2110,7 +2137,7 @@ button.primary {
   align-items: flex-start;
   justify-content: center;
   padding: min(12vh, 100px) var(--space-4) var(--space-4);
-  background: #00000045;
+  background: var(--overlay-scrim);
   -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
 }
@@ -2283,7 +2310,7 @@ button.primary {
   width: 40px;
   height: 40px;
   border: 1px solid var(--border);
-  font-size: 24px;
+  font-size: var(--font-size-title);
   flex-shrink: 0;
   color: var(--muted);
   border-color: transparent;
@@ -2320,9 +2347,8 @@ button.primary {
 .request-name {
   border-color: transparent;
   background: transparent;
-  flex: 1;
-  min-width: 80px;
-  max-width: 360px;
+  flex: 2;
+  min-width: 100px;
   padding: var(--space-2) 0;
   font-size: var(--font-size-body);
   line-height: var(--line-ui);
@@ -2332,13 +2358,28 @@ button.primary {
   border-color: var(--border);
 }
 .request-location {
+  display: flex;
+  align-items: center;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   flex: 1;
+  min-width: 0;
   font-size: var(--font-size-meta);
   line-height: var(--line-meta);
+}
+.request-location > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.request-location .location-parents {
+  flex: 0 1 auto;
+}
+.request-location .location-leaf {
+  flex: 0 0 auto;
+  max-width: 65%;
+  white-space: pre;
 }
 .request-identity > button {
   margin-left: auto;
@@ -2446,9 +2487,10 @@ button.primary {
   flex-direction: column;
   min-width: 0;
   min-height: 160px;
-  border: 1px solid var(--border);
+  border: 0;
+  border-top: 1px solid var(--border);
   overflow: hidden;
-  border-radius: var(--radius-control);
+  border-radius: 0;
 }
 .code-editor:focus-within {
   border-color: var(--focus);
@@ -2459,8 +2501,7 @@ button.primary {
   flex-wrap: wrap;
   align-items: center;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-1) 0;
   font-size: var(--font-size-meta);
   line-height: var(--line-meta);
   gap: var(--space-1) var(--space-2);
@@ -2472,6 +2513,12 @@ button.primary {
   line-height: var(--line-meta);
   min-height: var(--control-compact);
   padding: var(--space-1) var(--space-2);
+}
+.code-editor-toolbar > .icon-button {
+  width: var(--control-compact);
+  height: var(--control-compact);
+  flex: 0 0 var(--control-compact);
+  padding: var(--space-1);
 }
 .code-editor-toolbar button[aria-pressed="true"] {
   background: var(--selected);
@@ -2490,6 +2537,7 @@ button.primary {
   gap: var(--space-1);
 }
 .code-editor-position {
+  margin-left: auto;
   min-width: 95px;
   font-variant-numeric: tabular-nums;
 }
@@ -2734,8 +2782,9 @@ button.primary {
   background: var(--hover);
 }
 .code-editor-toolbar > button[aria-pressed="true"] {
+  border-color: transparent;
   background: var(--selected);
-  color: var(--accent);
+  color: var(--text);
 }
 .code-editor-toolbar .more-menu > summary {
   width: 28px;
@@ -2868,6 +2917,20 @@ button.primary {
   }
 }
 @media (max-width: 1050px) {
+  .metrics h3 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .metrics {
+    gap: var(--space-2);
+  }
+  .response-environment {
+    max-width: 80px;
+  }
   .save-status {
     max-width: 140px;
   }
@@ -2925,8 +2988,5 @@ button.primary {
 @media (max-width: 1050px) {
   .request-location {
     max-width: 180px;
-  }
-  .request-options .save-status {
-    display: none;
   }
 }

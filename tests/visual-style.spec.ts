@@ -127,6 +127,10 @@ async function openReview(page: Page, theme: string, language: string) {
   await page.getByRole("button", { name: /^(Body|请求体)$/ }).click();
   await page.locator(".url-bar .primary").click();
   await expect(page.locator(".response .cm-content")).toContainText("明涛");
+  const dismissNotice = page.getByRole("button", {
+    name: /^(Dismiss notification|关闭通知)$/,
+  });
+  if (await dismissNotice.count()) await dismissNotice.click();
 }
 
 function contrast(a: string, b: string) {

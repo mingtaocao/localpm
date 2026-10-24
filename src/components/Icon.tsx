@@ -12,6 +12,8 @@ type IconName =
   | "moon"
   | "help"
   | "folder"
+  | "wrap"
+  | "format"
   | "chevron-up"
   | "chevron-left"
   | "chevron-right"
@@ -58,6 +60,8 @@ export function Icon({ name }: { name: IconName }) {
         <path d="M9.5 9a2.5 2.5 0 0 1 5 .5c0 1.5-2.5 2-2.5 3.5m0 3h.01" />
       </>
     ),
+    wrap: <path d="M4 6h16M4 11h12a4 4 0 0 1 0 8h-4m3-3-3 3 3 3M4 16h3" />,
+    format: <path d="m8 6-6 6 6 6m8-12 6 6-6 6M14 4l-4 16" />,
     folder: (
       <path d="M3 7V6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
     ),

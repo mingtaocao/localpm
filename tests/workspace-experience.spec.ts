@@ -2127,3 +2127,64 @@ test("failed assertions reopen script results and a successful retry collapses t
   await expect(results).not.toHaveAttribute("open");
   await expect(results).toHaveAttribute("data-failed", "false");
 });
+
+test("response details keep the sent environment and URL while secondary metadata stays out of the main view", async ({
+  page,
+}) => {
+  await openWorkspace(page);
+  await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  const context = page.locator(".response-metadata");
+  await expect(context).toContainText("DEV");
+  await expect(context).not.toContainText("Received at");
+  await page
+    .getByLabel("Active environment", { exact: true })
+    .selectOption("STAGING");
+  await page
+    .getByLabel("Request URL", { exact: true })
+    .fill("https://example.test/changed");
+  await page
+    .getByRole("button", { name: "Response details", exact: true })
+    .click();
+  const details = page.getByRole("tooltip");
+  await expect(details).toContainText("Received at");
+  await expect(details).toContainText("Environment: DEV");
+  await expect(details).toContainText("https://example.test/users?page=1");
+  await expect(details).not.toContainText("https://example.test/changed");
+  await page.keyboard.press("Escape");
+  await expect(details).toHaveCount(0);
+});
+
+test("ordinary notices expire, pause under focus, and never dismiss a save failure", async ({
+  page,
+}) => {
+  const backend = await openWorkspace(page, {
+    save: async () => {
+      throw new Error("Disk unavailable");
+    },
+  });
+  await page.getByLabel("Request name", { exact: true }).fill("Retained draft");
+  await expect
+    .poll(() => backend.drafts.get("request")?.name)
+    .toBe("Retained draft");
+  await page.clock.install();
+  await page.reload();
+  const notice = page.locator(".toast:not(.error)");
+  await expect(notice).toContainText("Recovered unsaved drafts.");
+  const dismiss = page.getByRole("button", {
+    name: "Dismiss notification",
+    exact: true,
+  });
+  await notice.hover();
+  await dismiss.focus();
+  await page.mouse.move(0, 0);
+  await page.clock.runFor(5000);
+  await expect(notice).toBeVisible();
+  await page.getByLabel("Request name", { exact: true }).focus();
+  await page.clock.runFor(4100);
+  await expect(notice).toHaveCount(0);
+  await page.getByRole("button", { name: /^Save (?:⌘S|Ctrl\+S)$/ }).click();
+  await expect(page.locator(".save-failed")).toBeVisible();
+  await page.clock.runFor(6000);
+  await expect(page.locator(".save-failed")).toBeVisible();
+  await expect(page.locator(".toast.error")).toBeVisible();
+});

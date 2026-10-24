@@ -482,5 +482,7 @@
   "Environment: %{environment}": "Environment: %{environment}",
   "Field type %{index}": "Field type %{index}",
   "Choose file %{index}": "Choose file %{index}",
-  "TYPE": "TYPE"
+  "TYPE": "TYPE",
+  "Response details": "Response details",
+  "Dismiss notification": "Dismiss notification"
 }

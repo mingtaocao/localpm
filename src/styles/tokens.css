@@ -9,14 +9,14 @@
     "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC",
     "Noto Sans SC", monospace;
   --font-size-badge: 12px;
-  --font-size-meta: 13px;
+  --font-size-meta: 12px;
   --font-size-body: 14px;
   --font-size-title: 16px;
-  --font-size-heading: 18px;
+  --font-size-heading: var(--font-size-title);
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
-  --line-meta: 1.384615;
+  --line-meta: 1.5;
   --line-ui: 1.428572;
   --line-copy: 1.6;
   --space-1: 4px;
@@ -52,6 +52,8 @@
   --selected: #e8e8eb;
   --selection-bg: #1769c2;
   --selection-text: #ffffff;
+  --overlay-scrim: #00000045;
+  --tab-indicator: var(--text);
   --accent: #242424;
   --accent-fill: #242424;
   --on-accent: #ffffff;
@@ -104,6 +106,8 @@
   --selected: #353535;
   --selection-bg: #8bbcf4;
   --selection-text: #10233b;
+  --overlay-scrim: #00000070;
+  --tab-indicator: var(--text);
   --accent: #ececec;
   --accent-fill: #ececec;
   --on-accent: #202020;
