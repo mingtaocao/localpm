@@ -60,6 +60,11 @@ import { readLayout, saveLayout, layoutNumber } from "./stores/layout";
 import { LocationTrail } from "./components/LocationTrail";
 import { FormDataEditor } from "./components/FormDataEditor";
 import { HelpTip } from "./components/HelpTip";
+import {
+  inheritedAuthorization,
+  authorizationSource,
+  urlVariableReferences,
+} from "./utils/uiContext";
 type SaveTarget = { collectionId: string; parentId: string | null };
 const DEFAULT_SIDEBAR_WIDTH = 260;
 const MIN_SIDEBAR_WIDTH = 220;
@@ -123,6 +128,7 @@ export default function App() {
     return value || null;
   });
   const [resizingEditor, setResizingEditor] = useState(false);
+  const [bodySearch, setBodySearch] = useState({ requestId: "", open: false });
   const mainRef = useRef<HTMLDivElement>(null);
   const [mainHeight, setMainHeight] = useState(window.innerHeight - 48);
   useEffect(() => {
@@ -313,9 +319,11 @@ export default function App() {
   // Raw bodies need room for mode controls, editor tools and readable document lines.
   const minEditorHeight = Math.min(
     editor === "Scripts"
-      ? 420
+      ? 340
       : editor === "Body" && r?.body.mode === "raw"
-        ? 380
+        ? bodySearch.requestId === r.id && bodySearch.open
+          ? 364
+          : 300
         : editor === "Body" && r?.body.mode === "formdata"
           ? 320
           : consoleOpen
@@ -335,6 +343,11 @@ export default function App() {
   const editedEnvironment = w?.environments.find(
     (e) => e.id === editedEnvironmentId,
   );
+  const urlVariables = useMemo(
+    () => (w && r ? urlVariableReferences(w, r) : []),
+    [w, r],
+  );
+  const responseExpanded = tab?.view?.responseExpanded ?? false;
   const requestItem = w?.items.find((i) => i.request?.id === r?.id);
   const requestCollection = w?.collections.find(
     (c) => c.id === requestItem?.collectionId,
@@ -1059,6 +1072,48 @@ export default function App() {
     setEditedEnvironmentId(id);
     setModal("Environment");
   };
+  const bodyOptions = r ? (
+    <div className="body-options">
+      <select
+        aria-label={tr("Body mode")}
+        value={r.body.mode}
+        onChange={(e) =>
+          edit({
+            body: { ...r.body, mode: e.target.value },
+          })
+        }
+      >
+        {["none", "raw", "urlencoded", "formdata", "file"].map((m) => (
+          <option key={m} value={m}>
+            {tr(m)}
+          </option>
+        ))}
+      </select>
+      {r.body.mode === "raw" && (
+        <select
+          aria-label={tr("Raw language")}
+          value={r.body.options?.raw?.language ?? "text"}
+          onChange={(e) =>
+            edit({
+              body: {
+                ...r.body,
+                options: {
+                  ...r.body.options,
+                  raw: { language: e.target.value },
+                },
+              },
+            })
+          }
+        >
+          {["text", "json", "xml", "html", "javascript"].map((l) => (
+            <option key={l} value={l}>
+              {l === "text" ? tr("text") : l}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  ) : null;
   return (
     <div className="app">
       <header className="app-header">
@@ -1398,86 +1453,121 @@ export default function App() {
                 )}
                 {modal === "Settings" && (
                   <>
-                    <h3>{tr("Appearance")}</h3>
-                    <div className="form appearance">
-                      <label>
-                        {tr("Theme")}
-                        <select
-                          aria-label={tr("Theme")}
-                          value={theme}
-                          onChange={(e) =>
-                            void persist({
-                              ...w,
-                              settings: {
-                                ...w.settings,
-                                theme: e.target.value,
-                              },
-                            }).catch(fail)
-                          }
-                        >
-                          <option value="system">{tr("System")}</option>
-                          <option value="light">{tr("Light")}</option>
-                          <option value="dark">{tr("Dark")}</option>
-                        </select>
-                      </label>
-                      <label>
-                        {tr("Language")}
-                        <select
-                          aria-label={tr("Language")}
-                          value={language}
-                          onChange={(e) =>
-                            void persist({
-                              ...w,
-                              settings: {
-                                ...w.settings,
-                                language: e.target.value,
-                              },
-                            }).catch(fail)
-                          }
-                        >
-                          <option value="system">{tr("Follow system")}</option>
-                          <option value="en-US">{tr("English")}</option>
-                          <option value="zh-CN">{tr("简体中文")}</option>
-                        </select>
-                      </label>
-                      <label>
-                        {tr("Editor font size")}
-                        <select
-                          aria-label={tr("Editor font size")}
-                          value={fontSize}
-                          onChange={(event) =>
-                            setFontSize(Number(event.target.value))
-                          }
-                        >
-                          {[12, 13, 14, 15, 16, 18, 20].map((size) => (
-                            <option key={size} value={size}>
-                              {size}px
+                    <section className="settings-section">
+                      <h3>{tr("Appearance")}</h3>
+                      <div className="form">
+                        <label>
+                          {tr("Theme")}
+                          <select
+                            aria-label={tr("Theme")}
+                            value={theme}
+                            onChange={(e) =>
+                              void persist({
+                                ...w,
+                                settings: {
+                                  ...w.settings,
+                                  theme: e.target.value,
+                                },
+                              }).catch(fail)
+                            }
+                          >
+                            <option value="system">{tr("System")}</option>
+                            <option value="light">{tr("Light")}</option>
+                            <option value="dark">{tr("Dark")}</option>
+                          </select>
+                        </label>
+                        <label>
+                          {tr("Language")}
+                          <select
+                            aria-label={tr("Language")}
+                            value={language}
+                            onChange={(e) =>
+                              void persist({
+                                ...w,
+                                settings: {
+                                  ...w.settings,
+                                  language: e.target.value,
+                                },
+                              }).catch(fail)
+                            }
+                          >
+                            <option value="system">
+                              {tr("Follow system")}
                             </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-                    <McpSettings workspace={w} onError={fail} />
-                    <button
-                      onClick={() =>
-                        void api
-                          .cookies()
-                          .then((c) => {
-                            setCookies(c);
-                            setModal("Cookies");
-                          })
-                          .catch(fail)
-                      }
-                    >
-                      {tr("Manage cookies")}
-                    </button>
-                    <Network
-                      global
-                      value={w.settings}
-                      onChange={(settings) =>
-                        void persist({ ...w, settings }).catch(fail)
-                      }
-                    />
+                            <option value="en-US">{tr("English")}</option>
+                            <option value="zh-CN">{tr("简体中文")}</option>
+                          </select>
+                        </label>
+                        <label>
+                          {tr("Editor font size")}
+                          <select
+                            aria-label={tr("Editor font size")}
+                            value={fontSize}
+                            onChange={(event) =>
+                              setFontSize(Number(event.target.value))
+                            }
+                          >
+                            {[12, 13, 14, 15, 16, 18, 20].map((size) => (
+                              <option key={size} value={size}>
+                                {size}px
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    </section>
+                    <section className="settings-section">
+                      <h3>{tr("Network")}</h3>
+                      <Network
+                        global
+                        value={w.settings}
+                        onChange={(settings) =>
+                          void persist({ ...w, settings }).catch(fail)
+                        }
+                      />
+                    </section>
+                    <section className="settings-section">
+                      <h3>{tr("Data")}</h3>
+                      <div className="form">
+                        <label>
+                          {tr("History retention")}
+                          <select
+                            value={w.settings.historyLimit ?? 1000}
+                            onChange={(event) =>
+                              void persist({
+                                ...w,
+                                settings: {
+                                  ...w.settings,
+                                  historyLimit: Number(event.target.value),
+                                },
+                              }).catch(fail)
+                            }
+                          >
+                            {[100, 500, 1000, 5000, 0].map((limit) => (
+                              <option value={limit} key={limit}>
+                                {limit || tr("Unlimited")}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                      <button
+                        onClick={() =>
+                          void api
+                            .cookies()
+                            .then((cookies) => {
+                              setCookies(cookies);
+                              setModal("Cookies");
+                            })
+                            .catch(fail)
+                        }
+                      >
+                        {tr("Manage cookies")}
+                      </button>
+                    </section>
+                    <section className="settings-section">
+                      <McpSettings workspace={w} onError={fail} />
+                    </section>
                     <p className="muted">
                       {tr("appDescription", { version: appVersion })}
                     </p>
@@ -1510,6 +1600,25 @@ export default function App() {
                       value={collection.auth}
                       onChange={(auth) => patchCollection({ auth })}
                     />
+                    <h3>{tr("Scripts")}</h3>
+                    <label className="collection-script-toggle">
+                      <input
+                        type="checkbox"
+                        checked={readScripts(collection.metadata).enabled}
+                        onChange={(event) =>
+                          patchCollection({
+                            metadata: {
+                              ...(collection.metadata ?? {}),
+                              localpmScripts: {
+                                ...readScripts(collection.metadata),
+                                enabled: event.target.checked,
+                              },
+                            },
+                          })
+                        }
+                      />
+                      {tr("Run collection and inherited scripts")}
+                    </label>
                     <h3>{tr("Collection variables")}</h3>
                     <KeyValue
                       secrets
@@ -1545,6 +1654,11 @@ export default function App() {
                     </label>
                     <Auth
                       value={selectedItem.auth}
+                      inherited={authorizationSource(
+                        w,
+                        selectedItem.parentId,
+                        selectedItem.collectionId,
+                      )}
                       onChange={(auth) => patchFolder({ auth })}
                     />
                     <button
@@ -1611,6 +1725,9 @@ export default function App() {
                       />
                       <Network
                         value={editedEnvironment.settings}
+                        inherited={[
+                          { name: tr("Global settings"), settings: w.settings },
+                        ]}
                         onChange={(settings) => patchEnvironment({ settings })}
                       />
                       <button
@@ -1684,6 +1801,7 @@ export default function App() {
               <>
                 <section
                   className={`request-editor ${editor ? "" : "collapsed"}`}
+                  hidden={responseExpanded}
                   style={editor ? { height: editorHeight } : undefined}
                 >
                   <div className="request-identity">
@@ -1732,23 +1850,6 @@ export default function App() {
                       />
                       <input
                         className="url-input"
-                        title={[
-                          ...w.globals.map((p) => ({ ...p, scope: "Global" })),
-                          ...(requestCollection?.variables ?? []).map((p) => ({
-                            ...p,
-                            scope: "Collection",
-                          })),
-                          ...(environment?.variables ?? []).map((p) => ({
-                            ...p,
-                            scope: "Environment",
-                          })),
-                        ]
-                          .filter((p) => p.enabled)
-                          .map(
-                            (p) =>
-                              `{{${p.key}}} (${tr(p.scope)}) = ${p.isSecret ? "••••••••" : p.value}`,
-                          )
-                          .join("\n")}
                         aria-label={tr("Request URL")}
                         placeholder={tr("Enter URL or use {{host}}/api")}
                         value={r.url}
@@ -1759,6 +1860,46 @@ export default function App() {
                           })
                         }
                       />
+                      {!!urlVariables.length && (
+                        <span
+                          className={`url-variables ${urlVariables.some((variable) => !variable.valid) ? "has-error" : ""}`}
+                        >
+                          {urlVariables.some((variable) => !variable.valid) && (
+                            <span className="url-variable-error" role="status">
+                              {tr("Unresolved")}
+                            </span>
+                          )}
+                          <HelpTip
+                            label={tr(
+                              urlVariables.some((variable) => !variable.valid)
+                                ? "Unresolved URL variables"
+                                : "URL variables",
+                            )}
+                          >
+                            {urlVariables.map((variable) => (
+                              <div
+                                className="variable-reference"
+                                key={variable.key}
+                              >
+                                <strong>{`{{${variable.key}}}`}</strong>
+                                <span>
+                                  {variable.valid
+                                    ? variable.value
+                                    : tr("Unresolved variable")}
+                                </span>
+                                {variable.scope && (
+                                  <small>
+                                    {tr(variable.scope)}
+                                    {variable.source
+                                      ? ` / ${variable.source}`
+                                      : ""}
+                                  </small>
+                                )}
+                              </div>
+                            ))}
+                          </HelpTip>
+                        </span>
+                      )}
                     </div>
                     <button
                       className="primary"
@@ -1970,12 +2111,24 @@ export default function App() {
                     {editor === "Authorization" && (
                       <Auth
                         value={r.auth}
+                        inherited={inheritedAuthorization(w, r)}
                         onChange={(auth) => edit({ auth })}
                       />
                     )}
                     {editor === "Settings" && (
                       <Network
                         value={r.settings}
+                        inherited={[
+                          ...(environment
+                            ? [
+                                {
+                                  name: environment.name,
+                                  settings: environment.settings,
+                                },
+                              ]
+                            : []),
+                          { name: tr("Global settings"), settings: w.settings },
+                        ]}
                         onChange={(settings) => edit({ settings })}
                       />
                     )}
@@ -1986,26 +2139,10 @@ export default function App() {
                         inheritedEnabled={
                           readScripts(requestCollection?.metadata).enabled
                         }
-                        onInheritedChange={(enabled) => {
-                          const workspace = useWorkspace.getState().workspace;
-                          if (!workspace || !requestCollection) return;
-                          void persist({
-                            ...workspace,
-                            collections: workspace.collections.map((c) =>
-                              c.id === requestCollection.id
-                                ? {
-                                    ...c,
-                                    metadata: {
-                                      ...(c.metadata ?? {}),
-                                      localpmScripts: {
-                                        ...readScripts(c.metadata),
-                                        enabled,
-                                      },
-                                    },
-                                  }
-                                : c,
-                            ),
-                          }).catch(fail);
+                        onEditInherited={() => {
+                          if (!requestCollection) return;
+                          setSelected(requestCollection.id);
+                          setModal("Collection");
                         }}
                         value={requestScripts(
                           r,
@@ -2026,58 +2163,7 @@ export default function App() {
                     )}
                     {editor === "Body" && (
                       <>
-                        <div className="body-options">
-                          <select
-                            aria-label={tr("Body mode")}
-                            value={r.body.mode}
-                            onChange={(e) =>
-                              edit({
-                                body: { ...r.body, mode: e.target.value },
-                              })
-                            }
-                          >
-                            {[
-                              "none",
-                              "raw",
-                              "urlencoded",
-                              "formdata",
-                              "file",
-                            ].map((m) => (
-                              <option key={m} value={m}>
-                                {tr(m)}
-                              </option>
-                            ))}
-                          </select>
-                          {r.body.mode === "raw" && (
-                            <select
-                              aria-label={tr("Raw language")}
-                              value={r.body.options?.raw?.language ?? "text"}
-                              onChange={(e) =>
-                                edit({
-                                  body: {
-                                    ...r.body,
-                                    options: {
-                                      ...r.body.options,
-                                      raw: { language: e.target.value },
-                                    },
-                                  },
-                                })
-                              }
-                            >
-                              {[
-                                "text",
-                                "json",
-                                "xml",
-                                "html",
-                                "javascript",
-                              ].map((l) => (
-                                <option key={l} value={l}>
-                                  {l === "text" ? tr("text") : l}
-                                </option>
-                              ))}
-                            </select>
-                          )}
-                        </div>
+                        {r.body.mode !== "raw" && bodyOptions}
                         {r.body.mode === "none" && (
                           <p className="muted">
                             {tr("This request has no body.")}
@@ -2089,6 +2175,10 @@ export default function App() {
                             stateKey={`${r.id}:body`}
                             sessions={editorSessions}
                             label={tr("Request body editor")}
+                            toolbarStart={bodyOptions}
+                            onSearchPanelChange={(open) =>
+                              setBodySearch({ requestId: r.id, open })
+                            }
                             theme={resolvedTheme}
                             value={r.body.raw ?? ""}
                             language={
@@ -2151,7 +2241,7 @@ export default function App() {
                 <div
                   className="divider"
                   onDoubleClick={() => setTopHeight(null)}
-                  hidden={!editor}
+                  hidden={!editor || responseExpanded}
                   role="separator"
                   tabIndex={0}
                   aria-label={tr("Resize request and response")}
@@ -2326,6 +2416,27 @@ export default function App() {
                               {tr("Copied")}
                             </span>
                           )}
+                          <button
+                            className="icon-button"
+                            aria-label={tr(
+                              responseExpanded
+                                ? "Restore split view"
+                                : "Expand response",
+                            )}
+                            title={tr(
+                              responseExpanded
+                                ? "Restore split view"
+                                : "Expand response",
+                            )}
+                            aria-pressed={responseExpanded}
+                            onClick={() =>
+                              setView({ responseExpanded: !responseExpanded })
+                            }
+                          >
+                            <Icon
+                              name={responseExpanded ? "minimize" : "maximize"}
+                            />
+                          </button>
                           <MoreMenu label={tr("Response actions")}>
                             <button onClick={() => setResponseTab("Cookies")}>
                               {tr("Cookies")}
@@ -2343,7 +2454,29 @@ export default function App() {
                         </div>
                       </>
                     ) : (
-                      <h3>{tr("Response")}</h3>
+                      <>
+                        <h3>{tr("Response")}</h3>
+                        <button
+                          className="icon-button"
+                          aria-label={tr(
+                            responseExpanded
+                              ? "Restore split view"
+                              : "Expand response",
+                          )}
+                          title={tr(
+                            responseExpanded
+                              ? "Restore split view"
+                              : "Expand response",
+                          )}
+                          onClick={() =>
+                            setView({ responseExpanded: !responseExpanded })
+                          }
+                        >
+                          <Icon
+                            name={responseExpanded ? "minimize" : "maximize"}
+                          />
+                        </button>
+                      </>
                     )}
                   </div>
                   {!!tab?.error &&

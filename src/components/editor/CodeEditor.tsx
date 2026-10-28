@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import {
   Compartment,
@@ -13,7 +14,7 @@ import {
 } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { foldAll, unfoldAll } from "@codemirror/language";
-import { openSearchPanel } from "@codemirror/search";
+import { openSearchPanel, searchPanelOpen } from "@codemirror/search";
 import { useTranslation } from "react-i18next";
 import { Icon } from "../Icon";
 import { MoreMenu } from "../MoreMenu";
@@ -38,6 +39,8 @@ type Props = {
   label: string;
   readOnly?: boolean;
   onChange?: (value: string) => void;
+  toolbarStart?: ReactNode;
+  onSearchPanelChange?: (open: boolean) => void;
 };
 
 export function CodeEditor({
@@ -49,6 +52,8 @@ export function CodeEditor({
   label,
   readOnly = false,
   onChange,
+  toolbarStart,
+  onSearchPanelChange,
 }: Props) {
   const { t, i18n } = useTranslation();
   const host = useRef<HTMLDivElement>(null);
@@ -56,6 +61,8 @@ export function CodeEditor({
   const configurationRef = useRef<Compartment | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onSearchPanelChangeRef = useRef(onSearchPanelChange);
+  onSearchPanelChangeRef.current = onSearchPanelChange;
   const [wrap, setWrap] = useState(() => sessions.get(stateKey)?.wrap ?? false);
   const wrapRef = useRef(wrap);
   wrapRef.current = wrap;
@@ -132,6 +139,8 @@ export function CodeEditor({
     ...(wrap ? [EditorView.lineWrapping] : []),
     keymap.of([{ key: "Mod-Shift-f", run: formatJson }]),
     EditorView.updateListener.of((update) => {
+      if (searchPanelOpen(update.state) !== searchPanelOpen(update.startState))
+        onSearchPanelChangeRef.current?.(searchPanelOpen(update.state));
       if (update.docChanged) {
         setFormatError("");
         if (!readOnly) onChangeRef.current?.(update.state.doc.toString());
@@ -168,6 +177,7 @@ export function CodeEditor({
         cached?.state.doc.toString() === value ? cached.scroll : undefined,
     });
     viewRef.current = view;
+    onSearchPanelChangeRef.current?.(searchPanelOpen(view.state));
     const line = state.doc.lineAt(state.selection.main.head);
     setPosition({
       line: line.number,
@@ -237,6 +247,7 @@ export function CodeEditor({
       style={{ "--editor-font-size": `${fontSize}px` } as CSSProperties}
     >
       <div className="code-editor-toolbar">
+        {toolbarStart}
         {readOnly && (
           <span className="code-editor-readonly">{t("Read only")}</span>
         )}

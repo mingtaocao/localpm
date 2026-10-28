@@ -59,15 +59,18 @@ export function HelpTip({
       setOpen(false);
     }
     const close = () => setOpen(false);
+    const onScroll = (event: Event) => {
+      if (!content.current?.contains(event.target as Node)) close();
+    };
     document.addEventListener("pointerdown", dismiss);
     document.addEventListener("keydown", escape, true);
     window.addEventListener("resize", close);
-    window.addEventListener("scroll", close, true);
+    window.addEventListener("scroll", onScroll, true);
     return () => {
       document.removeEventListener("pointerdown", dismiss);
       document.removeEventListener("keydown", escape, true);
       window.removeEventListener("resize", close);
-      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("scroll", onScroll, true);
     };
   }, [open]);
 

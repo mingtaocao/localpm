@@ -46,7 +46,7 @@ describe("locale and theme preferences", () => {
     );
     expect(editorPhrases().Find).toBe("查找");
     expect(i18n.t("appDescription", { version: "1.2.3" })).toContain(
-      "Local Postman 1.2.3 · SQLite 本地存储",
+      "Local Postman 1.2.3，数据保存在本地",
     );
     await i18n.changeLanguage("en-US");
     expect(i18n.t("openRequests", { count: 1 })).toBe("1 open request");

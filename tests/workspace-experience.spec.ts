@@ -62,6 +62,7 @@ async function openWorkspace(
     save?: () => Promise<void>;
     draft?: (id: string, request: RequestSpec | null) => Promise<void>;
     theme?: string;
+    history?: import("../src/types").HistoryEntry[];
     openSavedRequest?: boolean;
     configure?: (workspace: Workspace) => void;
   } = {},
@@ -119,7 +120,11 @@ async function openWorkspace(
   const draftWrites: Array<{ id: string; request: RequestSpec | null }> = [];
   await page.exposeBinding("__experienceInvoke", async (_, cmd, args) => {
     if (cmd === "app_bootstrap")
-      return { workspace, drafts: [...drafts.values()], history: [] };
+      return {
+        workspace,
+        drafts: [...drafts.values()],
+        history: options.history ?? [],
+      };
     if (cmd === "save_workspace") {
       await options.save?.();
       workspace = structuredClone(args.workspace);
@@ -134,7 +139,7 @@ async function openWorkspace(
     if (cmd === "send_request")
       return options.send ? options.send(args) : response;
     if (cmd === "cancel_request") return options.cancel?.();
-    if (cmd === "get_history") return [];
+    if (cmd === "get_history") return options.history ?? [];
     return null;
   });
   await page.addInitScript(() => {
@@ -506,13 +511,16 @@ test("switching request tabs restores each request's collection variables and sc
   await tabs
     .getByRole("button", { name: "Request tab: Users", exact: true })
     .click();
-  await expect(page.getByLabel("Request URL", { exact: true })).toHaveAttribute(
-    "title",
-    /https:\/\/users\.collection\.test/,
+  await page
+    .getByRole("button", { name: "URL variables", exact: true })
+    .click();
+  await expect(page.getByRole("tooltip")).toContainText(
+    "https://users.collection.test",
   );
-  await expect(
-    page.getByLabel("Request URL", { exact: true }),
-  ).not.toHaveAttribute("title", /https:\/\/orders\.collection\.test/);
+  await expect(page.getByRole("tooltip")).not.toContainText(
+    "https://orders.collection.test",
+  );
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Scripts", exact: true }).click();
   await page.getByRole("button", { name: "Pre-request", exact: true }).click();
   await expect(
@@ -531,10 +539,16 @@ test("switching request tabs restores each request's collection variables and sc
   await tabs
     .getByRole("button", { name: "Request tab: Orders", exact: true })
     .click();
-  await expect(page.getByLabel("Request URL", { exact: true })).toHaveAttribute(
-    "title",
-    /https:\/\/orders\.collection\.test/,
+  await page
+    .getByRole("button", { name: "URL variables", exact: true })
+    .click();
+  await expect(page.getByRole("tooltip")).toContainText(
+    "https://orders.collection.test",
   );
+  await expect(page.getByRole("tooltip")).not.toContainText(
+    "https://users.collection.test",
+  );
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Scripts", exact: true }).click();
   await page.getByRole("button", { name: "Pre-request", exact: true }).click();
   await expect(
@@ -999,7 +1013,10 @@ test("save failure stays visible and parameter headers share the input column po
   });
   await page.getByRole("button", { name: "Params", exact: true }).click();
   const positions = await page.locator(".kv").evaluate((element) => {
-    const labels = [...element.querySelectorAll(".kv-label span")].slice(1, 4);
+    const labels = [...element.querySelectorAll(".kv-label > span")].slice(
+      1,
+      4,
+    );
     const inputs = [
       ...element.querySelectorAll('.kv-row input:not([type="checkbox"])'),
     ];
@@ -1546,12 +1563,12 @@ for (const language of ["en-US", "zh-CN"]) {
         exact: true,
       })
       .click();
-    const description = page.getByText(`Local Postman ${appVersion} ·`, {
+    const description = page.getByText(`Local Postman ${appVersion}`, {
       exact: false,
     });
     await expect(description).toBeVisible();
     await expect(description).toContainText(
-      language === "zh-CN" ? "SQLite 本地存储" : "Local SQLite storage",
+      language === "zh-CN" ? "数据保存在本地" : "Data is stored locally",
     );
     await expect(
       page.getByText("Local Postman 0.5.0 ·", { exact: false }),
@@ -2188,3 +2205,397 @@ test("ordinary notices expire, pause under focus, and never dismiss a save failu
   await expect(page.locator(".save-failed")).toBeVisible();
   await expect(page.locator(".toast.error")).toBeVisible();
 });
+
+test("compact body tools and response focus preserve content and per-request view", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 640 });
+  await openWorkspace(page);
+  await page.getByRole("button", { name: "Body", exact: true }).click();
+  await page.getByLabel("Body mode", { exact: true }).selectOption("raw");
+  await page.getByLabel("Raw language", { exact: true }).selectOption("json");
+  const body = page.getByRole("textbox", {
+    name: "Request body editor",
+    exact: true,
+  });
+  await body.fill('{"keep":"draft value"}');
+  const mode = (await page
+    .getByLabel("Body mode", { exact: true })
+    .boundingBox())!;
+  const find = (await page
+    .locator(".request-editor")
+    .getByRole("button", { name: "Find", exact: true })
+    .boundingBox())!;
+  expect(Math.abs(mode.y - find.y)).toBeLessThanOrEqual(2);
+  await page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  const responseEditor = page.locator(".response .code-editor-host");
+  expect((await responseEditor.boundingBox())!.height).toBeGreaterThanOrEqual(
+    90,
+  );
+  await page
+    .getByRole("button", { name: "Expand response", exact: true })
+    .click();
+  await expect(page.locator(".request-editor")).toBeHidden();
+  expect((await responseEditor.boundingBox())!.height).toBeGreaterThan(300);
+  await page.getByRole("button", { name: "New request", exact: true }).click();
+  await expect(page.locator(".request-editor")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Request tab: Users", exact: true })
+    .click();
+  await expect(page.locator(".request-editor")).toBeHidden();
+  await page
+    .getByRole("button", { name: "Restore split view", exact: true })
+    .click();
+  await expect(body).toContainText("draft value");
+  await expect(page.locator(".response .cm-content")).toContainText(
+    "current-response",
+  );
+});
+
+test("inherited scripts are inspected in the request and changed only in collection settings", async ({
+  page,
+}) => {
+  const backend = await openWorkspace(page, {
+    configure: (workspace) => {
+      workspace.collections[0].metadata = {
+        localpmScripts: {
+          enabled: true,
+          preRequest: "",
+          postResponse: 'console.log("collection");',
+        },
+      };
+    },
+  });
+  await page.getByRole("button", { name: "Scripts", exact: true }).click();
+  await expect(page.getByText("Collection scripts enabled: API")).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", { name: "Enable inherited collection scripts" }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("checkbox", { name: "Run this request's scripts", exact: true })
+    .uncheck();
+  expect(backend.read().collections[0].metadata.localpmScripts.enabled).toBe(
+    true,
+  );
+  await page
+    .getByRole("button", { name: "Collection settings", exact: true })
+    .click();
+  await page
+    .getByRole("checkbox", {
+      name: "Run collection and inherited scripts",
+      exact: true,
+    })
+    .uncheck();
+  await expect
+    .poll(() => backend.read().collections[0].metadata.localpmScripts.enabled)
+    .toBe(false);
+  await page.getByRole("button", { name: "Close ×", exact: true }).click();
+  await expect(
+    page.getByText("Collection scripts disabled: API"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", {
+      name: "Run this request's scripts",
+      exact: true,
+    }),
+  ).not.toBeChecked();
+});
+
+test("configuration shows effective sources and URL variables stay scoped and masked", async ({
+  page,
+}) => {
+  await openWorkspace(page, {
+    configure: (workspace) => {
+      const pair = (key: string, value: string) => ({
+        key,
+        value,
+        enabled: true,
+        description: "",
+      });
+      workspace.collections[0].auth = {
+        type: "basic",
+        username: "user",
+        password: "private-password",
+      };
+      workspace.items[0].request!.url = "{{host}}/{{token}}/{{missing}}";
+      workspace.globals = [
+        pair("host", "global.test"),
+        pair("unrelated", "not referenced"),
+      ];
+      workspace.environments[0].variables = [
+        pair("host", "environment.test"),
+        { ...pair("token", "private-token"), isSecret: true },
+      ];
+      workspace.settings.timeout = 45000;
+      workspace.environments[0].settings = { verifyTls: false };
+    },
+  });
+  await page
+    .getByRole("button", { name: "Unresolved URL variables", exact: true })
+    .click();
+  const tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toContainText("environment.test");
+  await expect(tooltip).toContainText("Environment / DEV");
+  await expect(tooltip).toContainText("••••••••");
+  await expect(tooltip).toContainText("Unresolved variable");
+  await expect(tooltip).not.toContainText("private-token");
+  await expect(tooltip).not.toContainText("unrelated");
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("button", { name: "Authorization", exact: true })
+    .click();
+  await expect(page.locator(".editor-content .field-origin")).toContainText(
+    "API",
+  );
+  await expect(page.locator(".editor-content")).not.toContainText(
+    "private-password",
+  );
+  await openMore(page);
+  await page
+    .getByRole("button", { name: "Request settings", exact: true })
+    .click();
+  await expect(
+    page.getByLabel("Timeout (ms)", { exact: true }),
+  ).toHaveAttribute("placeholder", "45000");
+  await expect(
+    page.getByLabel("Certificate verification", { exact: true }),
+  ).toHaveValue("inherit");
+  await expect(
+    page
+      .getByLabel("Certificate verification", { exact: true })
+      .locator("option:checked"),
+  ).toHaveText("Inherit: Disable verification");
+  await expect(
+    page.locator(".network-control").filter({
+      has: page.getByLabel("Certificate verification", { exact: true }),
+    }),
+  ).toContainText("From DEV");
+});
+
+test("parameter descriptions and keyboard column resizing retain edited values", async ({
+  page,
+}) => {
+  await openWorkspace(page, {
+    configure: (workspace) => {
+      workspace.items[0].request!.params[0].description = "";
+    },
+  });
+  const description = page.getByLabel("Description 1", { exact: true });
+  await expect(description).toBeHidden();
+  await page
+    .getByRole("button", { name: "Show descriptions", exact: true })
+    .click();
+  await description.fill("Keep this description");
+  await expect(
+    page.getByRole("button", { name: "Hide descriptions", exact: true }),
+  ).toBeDisabled();
+  const divider = page.getByRole("separator", {
+    name: "Resize key column",
+    exact: true,
+  });
+  const initial = (await page
+    .getByLabel("Key 1", { exact: true })
+    .boundingBox())!.width;
+  await divider.focus();
+  await divider.press("ArrowRight");
+  expect(
+    (await page.getByLabel("Key 1", { exact: true }).boundingBox())!.width,
+  ).toBeGreaterThan(initial);
+  await divider.press("Home");
+  await description.fill("");
+  await expect(description).toBeVisible();
+  await expect(description).toBeFocused();
+  await description.fill("Keep this description");
+  await expect(description).toHaveValue("Keep this description");
+  await expect(page.getByLabel("Value 1", { exact: true })).toHaveValue("1");
+});
+
+test("history searches by context, groups dates and opens results before editable copies", async ({
+  page,
+}) => {
+  const snapshot: RequestSpec = {
+    id: "old",
+    name: "Previous users",
+    method: "GET",
+    url: "https://example.test/old",
+    params: [],
+    headers: [],
+    body: { mode: "none" },
+    auth: { type: "noauth" },
+    settings: {},
+    metadata: null,
+  };
+  await openWorkspace(page, {
+    history: [
+      {
+        id: 1,
+        time: "2026-10-28 02:00:00",
+        snapshot,
+        response: {
+          status: 200,
+          body: "historical-result",
+          environmentName: "STAGING",
+        },
+      },
+      {
+        id: 2,
+        time: "2026-10-27 02:00:00",
+        snapshot: { ...snapshot, id: "other", name: "Orders", method: "POST" },
+        response: { status: 404, body: "older-result" },
+      },
+    ],
+  });
+  await showSidebar(page);
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  await expect(page.locator(".history-day")).toHaveCount(2);
+  await page
+    .getByRole("textbox", { name: "Search history", exact: true })
+    .fill("STAGING");
+  await expect(page.locator(".history-item")).toHaveCount(1);
+  const tabs = await page.locator(".tab").count();
+  await page
+    .getByRole("button", {
+      name: "View result for Previous users",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByLabel("Execution result", { exact: true }),
+  ).toContainText("historical-result");
+  await expect(page.locator(".tab")).toHaveCount(tabs);
+  await page
+    .getByRole("button", { name: "Close execution result", exact: true })
+    .click();
+  await page
+    .getByRole("button", {
+      name: "Open Previous users as a new request",
+      exact: true,
+    })
+    .click();
+  await expect(page.getByLabel("Request name", { exact: true })).toHaveValue(
+    "History: Previous users",
+  );
+  await expect(page.getByLabel("Request URL", { exact: true })).toHaveValue(
+    snapshot.url,
+  );
+  await expect(page.locator(".tab")).toHaveCount(tabs + 1);
+});
+
+for (const theme of ["light", "dark"])
+  for (const language of ["en-US", "zh-CN"]) {
+    test(`${theme} ${language}: configuration sources, grouped settings and history fit the minimum window`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 900, height: 640 });
+      const snapshot: RequestSpec = {
+        id: "previous",
+        name: "用户详情 / User profile",
+        method: "GET",
+        url: "https://example.test/users/1024",
+        params: [],
+        headers: [],
+        body: { mode: "none" },
+        auth: { type: "noauth" },
+        settings: {},
+        metadata: null,
+      };
+      await openWorkspace(page, {
+        theme,
+        history: [
+          {
+            id: 1,
+            time: "2026-10-28 02:00:00",
+            snapshot,
+            response: {
+              status: 200,
+              body: "saved",
+              environmentName: "开发环境 / Development",
+            },
+          },
+        ],
+        configure: (workspace) => {
+          workspace.items[0].request!.url = "{{host}}/{{token}}";
+          workspace.collections[0].auth = {
+            type: "bearer",
+            token: "private-auth-value",
+          };
+          workspace.environments[0].variables = [
+            {
+              key: "host",
+              value: "https://example.test",
+              enabled: true,
+              description: "",
+            },
+            {
+              key: "token",
+              value: "private-token",
+              enabled: true,
+              description: "",
+              isSecret: true,
+            },
+          ];
+        },
+      });
+      await page
+        .getByRole("button", { name: "⚙ Settings", exact: true })
+        .click();
+      await page.getByLabel("Language", { exact: true }).selectOption(language);
+      const zh = language === "zh-CN";
+      await expect(page.locator(".settings-section")).toHaveCount(4);
+      await expect(
+        page.getByLabel(zh ? "证书验证" : "Certificate verification", {
+          exact: true,
+        }),
+      ).toHaveValue("true");
+      await page.screenshot({
+        path: `artifacts/ui-refinements/settings-${theme}-${language}-900.png`,
+      });
+      await page
+        .getByRole("button", { name: zh ? "关闭 ×" : "Close ×", exact: true })
+        .click();
+      await page
+        .getByRole("button", {
+          name: zh ? "URL 变量" : "URL variables",
+          exact: true,
+        })
+        .click();
+      await expect(page.getByRole("tooltip")).toContainText("••••••••");
+      await expect(page.getByRole("tooltip")).not.toContainText(
+        "private-token",
+      );
+      await page.screenshot({
+        path: `artifacts/ui-refinements/variables-${theme}-${language}-900.png`,
+      });
+      await page.keyboard.press("Escape");
+      await page
+        .getByRole("button", {
+          name: zh ? "身份验证" : "Authorization",
+          exact: true,
+        })
+        .click();
+      await expect(page.locator(".editor-content .field-origin")).toContainText(
+        "API",
+      );
+      await page.screenshot({
+        path: `artifacts/ui-refinements/auth-${theme}-${language}-900.png`,
+      });
+      await page
+        .getByRole("button", {
+          name: zh ? "展开请求列表" : "Show requests",
+          exact: true,
+        })
+        .click();
+      await page
+        .getByRole("button", { name: zh ? "历史记录" : "History", exact: true })
+        .click();
+      await expect(page.locator(".history-item")).toHaveCount(1);
+      await page.screenshot({
+        path: `artifacts/ui-refinements/history-${theme}-${language}-900.png`,
+      });
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth - innerWidth,
+        ),
+      ).toBeLessThanOrEqual(1);
+    });
+  }
