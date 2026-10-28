@@ -5,6 +5,7 @@ export type RequestView = {
   responseSection: string;
   responseFormat: string;
   headerSearch: string;
+  responseExpanded: boolean;
 };
 
 export const defaultRequestView: RequestView = {
@@ -12,6 +13,7 @@ export const defaultRequestView: RequestView = {
   responseSection: "Pretty",
   responseFormat: "Pretty",
   headerSearch: "",
+  responseExpanded: false,
 };
 
 export type RequestTab = {

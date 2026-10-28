@@ -1,5 +1,11 @@
 import { useTranslation } from "react-i18next";
-import { useId, useState } from "react";
+import {
+  useId,
+  useState,
+  useRef,
+  useLayoutEffect,
+  type CSSProperties,
+} from "react";
 import { parsePairPaste, type PairPasteMode } from "../utils/pastePairs";
 import { pair, type Pair } from "../types";
 import { Icon } from "./Icon";
@@ -17,6 +23,24 @@ export function KeyValue({
   const { t: tr } = useTranslation();
   const inputId = useId();
   const [secretDrafts, setSecretDrafts] = useState<Record<number, string>>({});
+  const [descriptionsExpanded, setDescriptionsExpanded] = useState(false);
+  const [keyWidth, setKeyWidth] = useState<number | null>(null);
+  const keyColumn = useRef<HTMLSpanElement>(null);
+  const [measuredKeyWidth, setMeasuredKeyWidth] = useState(90);
+  useLayoutEffect(() => {
+    if (!keyColumn.current) return;
+    const observer = new ResizeObserver(([entry]) =>
+      setMeasuredKeyWidth(
+        Math.round(
+          entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width,
+        ),
+      ),
+    );
+    observer.observe(keyColumn.current);
+    return () => observer.disconnect();
+  }, []);
+  const hasDescriptions = rows.some((row) => !!row.description);
+  const showDescriptions = descriptionsExpanded || hasDescriptions;
   const last = rows.at(-1);
   const blank =
     last &&
@@ -49,12 +73,68 @@ export function KeyValue({
     onChange(rows.filter((_, n) => n !== i));
   }
   return (
-    <div className={`kv ${secrets ? "kv-secrets" : ""}`}>
+    <div
+      className={`kv ${secrets ? "kv-secrets" : ""}`}
+      data-descriptions={showDescriptions}
+      style={
+        {
+          "--kv-key-width": keyWidth ? `${keyWidth}px` : "1fr",
+        } as CSSProperties
+      }
+    >
       <div className="kv-label">
         <span title={tr("ENABLED")}>✓</span>
-        <span>{tr("KEY")}</span>
+        <span className="kv-key-heading" ref={keyColumn}>
+          {tr("KEY")}
+          <span
+            className="kv-column-divider"
+            role="separator"
+            aria-label={tr("Resize key column")}
+            aria-orientation="vertical"
+            aria-valuemin={90}
+            aria-valuenow={measuredKeyWidth}
+            tabIndex={0}
+            onDoubleClick={() => setKeyWidth(null)}
+            onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight", "Home"].includes(event.key))
+                return;
+              event.preventDefault();
+              const width =
+                event.currentTarget.parentElement!.getBoundingClientRect()
+                  .width;
+              const limit =
+                event.currentTarget.closest(".kv")!.clientWidth * 0.6;
+              setKeyWidth(
+                event.key === "Home"
+                  ? null
+                  : Math.max(
+                      90,
+                      Math.min(
+                        limit,
+                        width + (event.key === "ArrowRight" ? 16 : -16),
+                      ),
+                    ),
+              );
+            }}
+            onPointerDown={(event) =>
+              event.currentTarget.setPointerCapture(event.pointerId)
+            }
+            onPointerMove={(event) => {
+              if (!event.currentTarget.hasPointerCapture(event.pointerId))
+                return;
+              const left =
+                event.currentTarget.parentElement!.getBoundingClientRect().left;
+              const limit =
+                event.currentTarget.closest(".kv")!.clientWidth * 0.6;
+              setKeyWidth(Math.max(90, Math.min(limit, event.clientX - left)));
+            }}
+            onPointerUp={(event) =>
+              event.currentTarget.releasePointerCapture(event.pointerId)
+            }
+          />
+        </span>
         <span>{tr("VALUE")}</span>
-        <span>{tr("DESCRIPTION")}</span>
+        <span hidden={!showDescriptions}>{tr("DESCRIPTION")}</span>
         {secrets && <span>{tr("Secret")}</span>}
         <span />
       </div>
@@ -128,10 +208,14 @@ export function KeyValue({
             }}
           />
           <input
+            hidden={!showDescriptions}
             aria-label={tr("Description %{index}", { index: i + 1 })}
             placeholder={tr("Description")}
             value={r.description}
-            onChange={(e) => update(i, { description: e.target.value })}
+            onChange={(e) => {
+              setDescriptionsExpanded(true);
+              update(i, { description: e.target.value });
+            }}
           />
           {secrets && (
             <label className="tiny">
@@ -154,19 +238,29 @@ export function KeyValue({
           </button>
         </div>
       ))}
-      <button
-        className="subtle"
-        onClick={() => {
-          if (!blank) onChange([...rows, pair()]);
-          requestAnimationFrame(() =>
-            document
-              .getElementById(`${inputId}-key-${displayRows.length}`)
-              ?.focus(),
-          );
-        }}
-      >
-        {tr("＋ Add row")}
-      </button>
+      <div className="kv-actions">
+        <button
+          className="subtle"
+          onClick={() => {
+            if (!blank) onChange([...rows, pair()]);
+            requestAnimationFrame(() =>
+              document
+                .getElementById(`${inputId}-key-${displayRows.length}`)
+                ?.focus(),
+            );
+          }}
+        >
+          {tr("＋ Add row")}
+        </button>
+        <button
+          className="subtle"
+          disabled={hasDescriptions}
+          aria-expanded={showDescriptions}
+          onClick={() => setDescriptionsExpanded(!showDescriptions)}
+        >
+          {tr(showDescriptions ? "Hide descriptions" : "Show descriptions")}
+        </button>
+      </div>
     </div>
   );
 }

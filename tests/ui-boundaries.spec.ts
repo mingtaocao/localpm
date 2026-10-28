@@ -48,6 +48,9 @@ test("secret editing commits the complete value on blur", async ({ page }) => {
     .getByLabel("Value 1", { exact: true })
     .pressSequentially("complete-secret-value", { delay: 25 });
   expect(await page.evaluate(() => (window as any).__savedSecrets)).toEqual([]);
+  await page
+    .getByRole("button", { name: "Show descriptions", exact: true })
+    .click();
   await page.getByLabel("Description 1", { exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => (window as any).__savedSecrets))

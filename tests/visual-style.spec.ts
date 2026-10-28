@@ -11,7 +11,7 @@ async function openReview(page: Page, theme: string, language: string) {
             : index === 1
               ? "Ping"
               : `订单查询与状态更新 ${index}`,
-        method: index === 0 ? "GET" : "POST",
+        method: ["GET", "POST", "PUT", "PATCH", "DELETE"][index % 5],
         url: `https://api.example.test/v1/users/${index}`,
         params: [],
         headers: [{ key: "Accept", value: "application/json", enabled: true }],
@@ -201,6 +201,34 @@ for (const theme of ["light", "dark"]) {
         expect(contrast(view.mutedColor, view.surface)).toBeGreaterThanOrEqual(
           4.5,
         );
+        const semanticText = await page
+          .locator(".method, .metrics b")
+          .evaluateAll((elements) =>
+            elements
+              .filter((element) => element.getBoundingClientRect().width > 0)
+              .map((element) => {
+                let surface: Element | null = element;
+                while (
+                  surface &&
+                  ["rgba(0, 0, 0, 0)", "transparent"].includes(
+                    getComputedStyle(surface).backgroundColor,
+                  )
+                )
+                  surface = surface.parentElement;
+                return {
+                  label: element.textContent,
+                  color: getComputedStyle(element).color,
+                  background: surface
+                    ? getComputedStyle(surface).backgroundColor
+                    : "rgb(255, 255, 255)",
+                };
+              }),
+          );
+        for (const text of semanticText)
+          expect(
+            contrast(text.color, text.background),
+            `${text.label} contrast`,
+          ).toBeGreaterThanOrEqual(4.5);
         await page.screenshot({
           path: `artifacts/style-review/${theme}-${language}-${width}.png`,
         });

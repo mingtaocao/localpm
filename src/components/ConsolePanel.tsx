@@ -299,11 +299,12 @@ export function ConsolePanel({
                         <p>{t("Sending")}</p>
                       ) : (
                         <>
-                          <p>
+                          <p className="console-response-metrics">
                             <b className={problem ? "console-failed" : ""}>
                               {entry.status} {entry.statusText}
                             </b>{" "}
-                            · {entry.duration} ms · {entry.size ?? 0} B
+                            <span>{entry.duration} ms</span>
+                            <span>{entry.size ?? 0} B</span>
                           </p>
                           {entry.finalUrl && entry.finalUrl !== entry.url && (
                             <p>
@@ -341,10 +342,8 @@ export function ConsolePanel({
                       <h4>{t("Network")}</h4>
                       <span>
                         {t("Route")}: {entry.proxyMode}
-                        {entry.proxyUrl ? ` · ${entry.proxyUrl}` : ""}
-                        {entry.proxyBypassed
-                          ? ` · ${t("No Proxy bypass")}`
-                          : ""}
+                        {entry.proxyUrl ? `, ${entry.proxyUrl}` : ""}
+                        {entry.proxyBypassed ? `, ${t("No Proxy bypass")}` : ""}
                       </span>
                       <span>
                         {t("Timeout")}: {entry.timeout} ms

@@ -12,7 +12,7 @@ export function ScriptEditor({
   sessions,
   inherited = [],
   inheritedEnabled = false,
-  onInheritedChange,
+  onEditInherited,
 }: {
   requestId: string;
   value: ScriptSet;
@@ -21,7 +21,7 @@ export function ScriptEditor({
   sessions: EditorSessions;
   inherited?: string[];
   inheritedEnabled?: boolean;
-  onInheritedChange?: (enabled: boolean) => void;
+  onEditInherited?: () => void;
 }) {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<"preRequest" | "postResponse">(
@@ -79,20 +79,22 @@ export function ScriptEditor({
           </p>
         </HelpTip>
       </div>
-      {!!inherited.length && onInheritedChange && (
-        <label className="script-inheritance">
-          <input
-            type="checkbox"
-            checked={inheritedEnabled}
-            onChange={(e) => onInheritedChange(e.target.checked)}
-          />
-          {t("Enable inherited collection scripts")}
-        </label>
-      )}
       {!!inherited.length && (
-        <p className="muted script-help">
-          {t("Inherited scripts")}: {inherited.join(" / ")}
-        </p>
+        <div className="script-inheritance">
+          <span>
+            {t(
+              inheritedEnabled
+                ? "Collection scripts enabled"
+                : "Collection scripts disabled",
+            )}
+            : {inherited.join(" / ")}
+          </span>
+          {onEditInherited && (
+            <button onClick={onEditInherited}>
+              {t("Collection settings")}
+            </button>
+          )}
+        </div>
       )}
       <CodeEditor
         key={`${requestId}:${phase}`}

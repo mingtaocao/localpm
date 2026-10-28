@@ -14,6 +14,8 @@ type IconName =
   | "folder"
   | "wrap"
   | "format"
+  | "maximize"
+  | "minimize"
   | "chevron-up"
   | "chevron-left"
   | "chevron-right"
@@ -62,6 +64,8 @@ export function Icon({ name }: { name: IconName }) {
     ),
     wrap: <path d="M4 6h16M4 11h12a4 4 0 0 1 0 8h-4m3-3-3 3 3 3M4 16h3" />,
     format: <path d="m8 6-6 6 6 6m8-12 6 6-6 6M14 4l-4 16" />,
+    maximize: <path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" />,
+    minimize: <path d="M3 8h5V3m8 0v5h5M8 21v-5H3m13 5v-5h5" />,
     folder: (
       <path d="M3 7V6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
     ),

@@ -58,7 +58,7 @@
   --accent-fill: #242424;
   --on-accent: #ffffff;
   --focus: #2864dc;
-  --success: #18895f;
+  --success: #08745f;
   --warning-bg: #fff4de;
   --warning-text: #8a5c16;
   --error-bg: #fff0ef;
@@ -67,11 +67,11 @@
   --console-bg: #f5f6f8;
   --console-text: #20252d;
   --shadow: #20252d16;
-  --method-get: #168b79;
-  --method-post: #a57317;
-  --method-put: #3c72bc;
-  --method-patch: #865ab1;
-  --method-delete: #bd4444;
+  --method-get: #08745f;
+  --method-post: #805b10;
+  --method-put: #2f64ac;
+  --method-patch: #7946a4;
+  --method-delete: #af3434;
   --unsaved-dot: #e7ad38;
   --unsaved-text: #865800;
   --editor-cursor: #242424;

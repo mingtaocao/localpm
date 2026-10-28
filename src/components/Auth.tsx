@@ -2,9 +2,11 @@ import { useTranslation } from "react-i18next";
 export function Auth({
   value,
   onChange,
+  inherited,
 }: {
   value: any;
   onChange: (v: any) => void;
+  inherited?: { type: string; source?: string };
 }) {
   const { t: tr } = useTranslation();
   const type = value?.type ?? "inherit";
@@ -60,8 +62,10 @@ export function Auth({
         </label>
       )}
       {type === "inherit" && (
-        <p className="muted">
-          {tr("Inherits from the nearest folder, then the collection.")}
+        <p className="field-origin" role="status">
+          {tr(inherited?.type ?? "noauth")}
+          {inherited?.source &&
+            ` — ${tr("From %{source}", { source: inherited.source })}`}
         </p>
       )}
     </div>

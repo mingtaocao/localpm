@@ -1,50 +1,100 @@
 import { useTranslation } from "react-i18next";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { api } from "../services/tauriApi";
+import { inheritedSetting, type SettingsLayer } from "../utils/uiContext";
 export function Network({
   value,
   onChange,
   global = false,
+  inherited = [],
 }: {
   value: any;
   onChange: (v: any) => void;
   global?: boolean;
+  inherited?: SettingsLayer[];
 }) {
   const { t: tr } = useTranslation();
   const [passwordDraft, setPasswordDraft] = useState<string | undefined>();
   const p = value.proxy ?? { mode: global ? "off" : "inherit" };
   const set = (key: string, v: any) => onChange({ ...value, [key]: v });
   const proxy = (key: string, v: any) => set("proxy", { ...p, [key]: v });
+  const effective = (key: string) => inheritedSetting(inherited, key);
+  const origin = (key: string) => {
+    const setting = effective(key);
+    return !global &&
+      (value[key] == null || (key === "proxy" && p.mode === "inherit")) ? (
+      <small className="field-origin">
+        {setting.source
+          ? tr("From %{source}", { source: setting.source })
+          : tr("Application default")}
+      </small>
+    ) : null;
+  };
+  const control = (key: string, children: ReactNode) => (
+    <span className="network-control">
+      {children}
+      {origin(key)}
+    </span>
+  );
+  const proxyNames: Record<string, string> = {
+    off: "Direct connection",
+    system: "System",
+    manual: "Manual HTTP / HTTPS",
+  };
   return (
-    <div className="form">
+    <div className="form network-form">
       <label>
         {tr("Timeout (ms)")}
-        <input
-          type="number"
-          placeholder={tr("Inherit · 30000")}
-          value={value.timeout ?? ""}
-          onChange={(e) =>
-            set("timeout", e.target.value ? Number(e.target.value) : null)
-          }
-        />
+        {control(
+          "timeout",
+          <input
+            aria-label={tr("Timeout (ms)")}
+            type="number"
+            min="1"
+            step="1"
+            placeholder={String(effective("timeout").value)}
+            value={value.timeout ?? ""}
+            onChange={(e) =>
+              set("timeout", e.target.value ? Number(e.target.value) : null)
+            }
+          />,
+        )}
       </label>
       <label>
         {tr("Certificate verification")}
-        <select
-          value={
-            value.verifyTls === undefined ? "inherit" : String(value.verifyTls)
-          }
-          onChange={(e) =>
-            set(
-              "verifyTls",
-              e.target.value === "inherit" ? null : e.target.value === "true",
-            )
-          }
-        >
-          <option value="inherit">{tr("Inherit")}</option>
-          <option value="true">{tr("Verify certificates")}</option>
-          <option value="false">{tr("Disable verification")}</option>
-        </select>
+        {control(
+          "verifyTls",
+          <select
+            aria-label={tr("Certificate verification")}
+            value={
+              value.verifyTls == null
+                ? global
+                  ? "true"
+                  : "inherit"
+                : String(value.verifyTls)
+            }
+            onChange={(e) =>
+              set(
+                "verifyTls",
+                e.target.value === "inherit" ? null : e.target.value === "true",
+              )
+            }
+          >
+            {!global && (
+              <option value="inherit">
+                {tr("Inherit: %{value}", {
+                  value: tr(
+                    effective("verifyTls").value === false
+                      ? "Disable verification"
+                      : "Verify certificates",
+                  ),
+                })}
+              </option>
+            )}
+            <option value="true">{tr("Verify certificates")}</option>
+            <option value="false">{tr("Disable verification")}</option>
+          </select>,
+        )}
       </label>
       {value.verifyTls === false && (
         <div className="warning">
@@ -55,36 +105,66 @@ export function Network({
       )}
       <label>
         {tr("Redirects")}
-        <select
-          value={
-            value.followRedirect === undefined
-              ? "inherit"
-              : String(value.followRedirect)
-          }
-          onChange={(e) =>
-            set(
-              "followRedirect",
-              e.target.value === "inherit" ? null : e.target.value === "true",
-            )
-          }
-        >
-          <option value="inherit">{tr("Inherit")}</option>
-          <option value="true">{tr("Follow · max 10")}</option>
-          <option value="false">{tr("Do not follow")}</option>
-        </select>
+        {control(
+          "followRedirect",
+          <select
+            aria-label={tr("Redirects")}
+            value={
+              value.followRedirect == null
+                ? global
+                  ? "true"
+                  : "inherit"
+                : String(value.followRedirect)
+            }
+            onChange={(e) =>
+              set(
+                "followRedirect",
+                e.target.value === "inherit" ? null : e.target.value === "true",
+              )
+            }
+          >
+            {!global && (
+              <option value="inherit">
+                {tr("Inherit: %{value}", {
+                  value: tr(
+                    effective("followRedirect").value === false
+                      ? "Do not follow"
+                      : "Follow redirects (up to 10)",
+                  ),
+                })}
+              </option>
+            )}
+            <option value="true">{tr("Follow redirects (up to 10)")}</option>
+            <option value="false">{tr("Do not follow")}</option>
+          </select>,
+        )}
       </label>
       <label>
         {tr("Proxy")}
-        <select
-          aria-label={tr("Proxy")}
-          value={p.mode}
-          onChange={(e) => proxy("mode", e.target.value)}
-        >
-          {!global && <option value="inherit">{tr("Inherit")}</option>}
-          <option value="off">{tr("Off · direct connection")}</option>
-          <option value="system">{tr("System")}</option>
-          <option value="manual">{tr("Manual HTTP / HTTPS")}</option>
-        </select>
+        {control(
+          "proxy",
+          <select
+            aria-label={tr("Proxy")}
+            value={p.mode}
+            onChange={(e) => proxy("mode", e.target.value)}
+          >
+            {!global && (
+              <option value="inherit">
+                {tr("Inherit: %{value}", {
+                  value: tr(
+                    proxyNames[effective("proxy").value.mode] ??
+                      "Direct connection",
+                  ),
+                })}
+              </option>
+            )}
+            {Object.entries(proxyNames).map(([mode, name]) => (
+              <option key={mode} value={mode}>
+                {tr(name)}
+              </option>
+            ))}
+          </select>,
+        )}
       </label>
       {p.mode === "manual" && (
         <>
@@ -104,7 +184,7 @@ export function Network({
             />
           </label>
           <label>
-            {tr("Password · OS credential store")}
+            {tr("Password")}
             <input
               type="password"
               placeholder={p.secretRef ? tr("Saved securely") : ""}
@@ -130,34 +210,26 @@ export function Network({
       )}
       <label>
         {tr("Custom CA PEM")}
-        <input
-          value={value.caFile ?? ""}
-          onChange={(e) => set("caFile", e.target.value)}
-        />
-        <button
-          onClick={async () => {
-            const path = await api.file();
-            if (path) set("caFile", path);
-          }}
-        >
-          {tr("Choose CA file")}
-        </button>
+        <span className="network-control">
+          <span className="file-control">
+            <input
+              aria-label={tr("Custom CA PEM")}
+              placeholder={global ? "" : effective("caFile").value}
+              value={value.caFile ?? ""}
+              onChange={(e) => set("caFile", e.target.value)}
+            />
+            <button
+              onClick={async () => {
+                const path = await api.file();
+                if (path) set("caFile", path);
+              }}
+            >
+              {tr("Choose CA file")}
+            </button>
+          </span>
+          {origin("caFile")}
+        </span>
       </label>
-      {global && (
-        <label>
-          {tr("History retention")}
-          <select
-            value={value.historyLimit ?? 1000}
-            onChange={(e) => set("historyLimit", Number(e.target.value))}
-          >
-            {[100, 500, 1000, 5000, 0].map((n) => (
-              <option value={n} key={n}>
-                {n || tr("Unlimited")}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
     </div>
   );
 }
